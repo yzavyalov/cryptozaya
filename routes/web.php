@@ -18,7 +18,7 @@ Route::middleware(['cabinet'])->group(function (){
     Route::get('/logout', LogoutController::class)->name('logout');
     Route::get('/documentation',[PageController::class,'documentation'])->name('documentation');
 
-    //Registration
+    //Registrationq
     //users
     Route::get('/add-new-user',[PageController::class,'newUser'])->name('new-user');
     Route::post('/create-user',[UserController::class,'createUser'])->name('create-user');
