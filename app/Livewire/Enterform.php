@@ -49,7 +49,7 @@ class Enterform extends Component
         }
 
         $this->codeSent = true;
-        $this->expiresAt = now()->addSeconds($this->codeTtl)->timestamp;
+        $this->expiresAt = now()->addSeconds($this->codeTtl)->getTimestamp;
     }
 
     public function resendCode()
@@ -62,7 +62,7 @@ class Enterform extends Component
             return;
         }
 
-        $this->expiresAt = now()->addSeconds($this->codeTtl)->timestamp;
+        $this->expiresAt = now()->addSeconds($this->codeTtl)->getTimestamp;
     }
 
     public function verifyCode()
