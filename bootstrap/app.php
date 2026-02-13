@@ -18,10 +18,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhook-verify' => \App\Http\Middleware\VerifyWebhookSignature::class,
             ]);
 
-        $middleware->validateCsrfTokens(except: [
-            'livewire/update',
-            'livewire/message/*'
-        ]);
+//        $middleware->validateCsrfTokens(except: [
+//            'livewire/update',
+//            'livewire/message/*'
+//        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
