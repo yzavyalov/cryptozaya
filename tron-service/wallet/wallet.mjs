@@ -66,37 +66,65 @@ export async function getBalance(address) {
     }
 
     logToFile("tronWeb initialized successfully");
+
     try {
         if (!address) throw new Error("Empty address");
 
-        logToFile("address:", address);
+        const base58 = address.startsWith("41")
+            ? tronWeb.address.fromHex(address)
+            : address;
 
-        const base58 = address.startsWith("41") ? tronWeb.address.fromHex(address) : address;
         const hex = tronWeb.address.toHex(base58);
+
+        logToFile("address:", address);
+        logToFile("base58:", base58);
+        logToFile("hex:", hex);
+
+        // ВАЖНО: выставим owner_address для последующих contract.call()
+        // (всё равно дополнительно передадим from в call — так надёжнее)
+        try {
+            tronWeb.setAddress(base58);
+        } catch (e) {
+            // если tronWeb не поддерживает setAddress в твоей сборке — не критично
+            logToFile("tronWeb.setAddress warning:", e.message || e);
+        }
+
         const balances = {};
 
-        logToFile("base58:", base58);
-
+        // TRX
         balances.TRX = (await tronWeb.trx.getBalance(base58)) / 1e6;
 
+        // TRC20
         for (const [symbol, token] of Object.entries(TOKENS)) {
-            if (!token.address) continue;
+            if (!token?.address) continue;
 
             try {
                 const contract = await tronWeb.contract(TRC20_ABI, token.address);
-                const balance = await contract.balanceOf(hex).call();
-                balances[symbol] = Number(balance) / 10 ** token.decimals;
+
+                // Передаём base58 в balanceOf и задаём from (owner_address)
+                const raw = await contract.balanceOf(base58).call({ from: base58 });
+
+                // raw может быть BigNumber/строка — приводим аккуратно
+                const rawStr =
+                    typeof raw === "object" && raw?.toString ? raw.toString() : String(raw);
+
+                balances[symbol] = Number(rawStr) / 10 ** Number(token.decimals ?? 6);
             } catch (e) {
+                logToFile(
+                    `TRC20 balance error for ${symbol}:`,
+                    e?.message || e,
+                    { tokenAddress: token.address, owner: base58 }
+                );
                 balances[symbol] = 0;
             }
         }
 
-        logToFile(balances);
+        logToFile("balances:", balances);
 
         return {
             address: base58,
             hex,
-            balances
+            balances,
         };
     } catch (err) {
         logToFile("getBalance error:", err.message || err);
