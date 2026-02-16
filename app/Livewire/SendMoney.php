@@ -148,10 +148,13 @@ class SendMoney extends Component
                     'numeric',
                     'gt:0',
                     function ($attribute, $value, $fail) {
+                        $symbol = BlockChainEnum::exchangeCurrency(CurrencyService::tronDBNameToken($this->currency));
                         // получаем баланс пользователя для выбранной валюты
-                        $balance = $this->walletBalances[CurrencyService::tronDBNameToken($this->currency)] ?? 0;
+                        $balance = (float) ($this->walletBalances[$symbol] ?? 0);
 
-                        if ($value > $balance) {
+                        $amount = (float) $value;
+
+                        if ($amount > $balance) {
                             $fail("The amount exceeds your available balance.");
                         }
                     }
