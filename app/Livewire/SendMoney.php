@@ -5,19 +5,17 @@ namespace App\Livewire;
 use App\Http\Enums\BlockChainEnum;
 use App\Models\Currency;
 use App\Models\Wallet;
-use App\Services\EncodeService;
-use App\Services\Operations\BalanceService;
 use App\Services\Operations\CurrencyService;
 use App\Services\Operations\TransactionService;
 use App\Services\Tron\TronService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 class SendMoney extends Component
 {
     public $user;
-    public $yourBalances;
     public $walletId;
 
     public $wallet;
@@ -26,105 +24,102 @@ class SendMoney extends Component
     public $currencies;
 
     public $blockchain = '';
-
-    public $currency = '';
-
-    public $amount = '';
-
-    public $to;
+    public $currency   = '';
+    public $amount     = '';
+    public $to         = '';
 
     public function mount($walletId)
     {
         $this->user = Auth::user();
-
         $this->walletId = $walletId;
 
         $this->loadWallet();
-        $this->loadWalletsBalancies();
-
         $this->currencies = $this->loadCurrencies();
+
+        $this->loadWalletBalances();
     }
 
-    public function loadWallet()
+    public function loadWallet(): void
     {
         $this->wallet = Wallet::find($this->walletId);
+
+        if (!$this->wallet) {
+            Log::error('Wallet not found', ['wallet_id' => $this->walletId]);
+            session()->flash('error', 'Wallet not found.');
+        }
     }
 
-
-    private function normalizeUtf8($data)
+    /**
+     * ВАЖНО:
+     * Твой прошлый normalizeUtf8 вырезал ВСЁ кроме ASCII (регекс [^\x20-\x7E]),
+     * из-за этого мог ломать ответы/токены/сообщения.
+     * Здесь мы удаляем только управляющие (control) символы, а не весь UTF-8.
+     */
+    private function sanitizeNodeResponse($data)
     {
-        array_walk_recursive($data, function (&$item) {
-            if (is_string($item)) {
-                // Принудительная конвертация в UTF-8
-                $item = mb_convert_encoding($item, 'UTF-8', 'UTF-8');
-
-                // Удалить бинарный мусор
-                $item = preg_replace('/[^\x20-\x7E]/', '', $item);
-            }
-        });
+        if (is_array($data)) {
+            array_walk_recursive($data, function (&$item) {
+                if (is_string($item)) {
+                    // убираем только control chars, оставляя UTF-8
+                    $item = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $item);
+                }
+            });
+        }
 
         return $data;
     }
 
-    public function loadWalletsBalancies()
+    public function loadWalletBalances(): void
     {
-        $wallet = $this->wallet;
-
         $this->walletBalances = [];
 
-        if (!$wallet) {
-            Log::error('Wallet not found', [
-                'wallet_id' => $this->walletId
-            ]);
+        if (!$this->wallet) {
             return;
         }
 
-        if (strtolower($wallet->network) === 'tron') {
-            try {
-                $address = $wallet->hex ?? $wallet->number;
+        if (strtolower($this->wallet->network) !== 'tron') {
+            // можно расширить под другие сети
+            return;
+        }
 
-                Log::info('Fetching balances from Tron node', ['address' => $address]);
+        try {
+            $address = $this->wallet->hex ?: $this->wallet->number;
 
-                $response = app(TronService::class)->getAllBalances($address);
+            Log::info('Fetching balances from Tron node', ['address' => $address]);
 
-                // 🔥 Добавляем фиксацию UTF-8
-                $response = $this->normalizeUtf8($response);
+            $response = app(TronService::class)->getAllBalances($address);
+            $response = $this->sanitizeNodeResponse($response);
 
-                Log::info('Tron node full response', $response);
-                Log::info('Node response', [
-                    'wallet' => $wallet->number,
-                    'response' => $response
-                ]);
+            Log::info('Tron node response', [
+                'wallet' => $this->wallet->number,
+                'response' => $response,
+            ]);
 
-                $this->walletBalances = $response['balances'] ?? [];
+            $this->walletBalances = $response['balances'] ?? [];
+        } catch (\Throwable $e) {
+            $this->walletBalances = ['error' => $e->getMessage()];
 
-            } catch (\Exception $e) {
-                $this->walletBalances = [
-                    'error' => $e->getMessage()
-                ];
-
-                Log::error('Error fetching balances', [
-                    'wallet' => $wallet->number,
-                    'error' => $e->getMessage()
-                ]);
-            }
+            Log::error('Error fetching balances', [
+                'wallet' => $this->wallet->number,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
-
-
 
     public function loadCurrencies()
     {
         return Currency::all();
     }
 
-
-    public function sendMoney()
+    public function sendMoney(): void
     {
-        Log::info('sendMoney started', [
-            'user_id' => $this->user->id ?? null,
-            'wallet_id' => $this->wallet->id ?? null
-        ]);
+        // чистим старые flash чтобы не "залипали" в UI
+        session()->forget(['error', 'success']);
+
+        if (!$this->wallet) {
+            session()->flash('error', 'Wallet not found.');
+            return;
+        }
 
         $blockchainLabels = array_map(fn($enum) => $enum->label(), BlockChainEnum::cases());
 
@@ -137,9 +132,11 @@ class SendMoney extends Component
                 'currency' => [
                     'required',
                     function ($attribute, $value, $fail) {
+                        // $value тут — currency id из селекта
                         $allowed = BlockChainEnum::currencies()[$this->blockchain] ?? [];
+
                         if (!in_array($value, $allowed)) {
-                            $fail("The selected currency '{$value}' is invalid for the selected blockchain '{$this->blockchain}'.");
+                            $fail("The selected currency is invalid for the selected blockchain.");
                         }
                     }
                 ],
@@ -148,59 +145,60 @@ class SendMoney extends Component
                     'numeric',
                     'gt:0',
                     function ($attribute, $value, $fail) {
-                        $symbol = BlockChainEnum::exchangeCurrency(CurrencyService::tronDBNameToken($this->currency));
-                        // получаем баланс пользователя для выбранной валюты
-                        $balance = (float) ($this->walletBalances[$symbol] ?? 0);
+                        // Проверка баланса по уже загруженным walletBalances
+                        $symbol = BlockChainEnum::exchangeCurrency(
+                            CurrencyService::tronDBNameToken($this->currency)
+                        );
 
-                        $amount = (float) $value;
+                        $balance = (float)($this->walletBalances[$symbol] ?? 0);
+                        $amount  = (float)$value;
 
                         if ($amount > $balance) {
-                            $fail("The amount exceeds your available balance.");
+                            $fail('The amount exceeds your available balance.');
                         }
                     }
                 ],
                 'to' => ['required', 'string'],
             ]);
-
-            Log::info('Validation passed', [
-                'blockchain' => $this->blockchain,
-                'currency' => $this->currency,
-                'amount' => $this->amount,
-                'to' => $this->to
-            ]);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             Log::warning('Validation failed', [
                 'errors' => $e->errors(),
-                'input' => request()->all()
             ]);
-            session()->flash('error', 'Validation error: ' . json_encode($e->errors()));
+
+            session()->flash('error', 'Validation error.');
+            // ошибки полей Livewire сам покажет через @error
             return;
         }
 
-        $currency = CurrencyService::tronDBNameToken($this->currency); // 'USDT (trc20)','USDC (trc20)', 'TRX'
-        $amount   = $this->amount;
-        $to       = $this->to;
-        $wallet   = $this->wallet;               // твой объект Wallet
-        $pk       = $wallet->privateKey;
+        $currencyDbName = CurrencyService::tronDBNameToken($this->currency); // 'USDT (trc20)','USDC (trc20)', 'TRX'
+        $amount         = (string)$this->amount;
+        $to             = (string)$this->to;
+
+        $wallet = $this->wallet;
+        $pk     = $wallet->privateKey;
 
         Log::info('Preparing to send', [
-            'currency' => $currency,
+            'blockchain' => $this->blockchain,
+            'currency' => $currencyDbName,
             'to' => $to,
             'amount' => $amount,
             'wallet_number' => $wallet->number,
-            'privateKey_snippet' => substr($pk, 0, 6) . '***' // не логируем полностью!
         ]);
 
-        $tron = app(\App\Services\Tron\TronService::class);
-
         try {
-            $tx = $tron->send(CurrencyService::curencyForTronBlockchain($currency), $pk,$to,$amount);
+            $tron = app(TronService::class);
+
+            // Отправка в Tron
+            $tx = $tron->send(
+                CurrencyService::curencyForTronBlockchain($currencyDbName),
+                $pk,
+                $to,
+                $amount
+            );
 
             Log::info('Transaction sent', ['tx' => $tx]);
 
-            // Имя токена (USDT, USDC, ...)
-            $token = $tx['type'] ?? $currency;
+            $token = $tx['type'] ?? $currencyDbName;
 
             app(TransactionService::class)->create(
                 $this->blockchain,
@@ -215,35 +213,29 @@ class SendMoney extends Component
                 'wallet_number' => $wallet->number,
                 'to' => $to,
                 'amount' => $amount,
-                'token' => $token
+                'token' => $token,
             ]);
 
-//            app(BalanceService::class)->reduction(
-//                $this->user->id,
-//                $amount,
-//                CurrencyService::tronToken($token)
-//            );
+            // ✅ SUCCESS MESSAGE
+            session()->flash('success', 'Transaction successfully sent.');
 
-//            Log::info('User balance reduced', [
-//                'user_id' => $this->user->id,
-//                'amount' => $amount,
-//                'token' => $token
-//            ]);
+            // Очистим форму (чтобы пользователь не отправил повторно случайно)
+            $this->reset(['amount', 'to', 'currency']);
 
-        } catch (\Exception $e) {
+            // Обновим балансы после транзакции
+            $this->loadWalletBalances();
+
+        } catch (\Throwable $e) {
             Log::error('Transaction error', [
                 'message' => $e->getMessage(),
-                'currency' => $currency,
+                'currency' => $currencyDbName,
                 'to' => $to,
-                'amount' => $amount
+                'amount' => $amount,
             ]);
 
             session()->flash('error', $e->getMessage());
         }
-
-        Log::info('sendMoney finished');
     }
-
 
     public function render()
     {

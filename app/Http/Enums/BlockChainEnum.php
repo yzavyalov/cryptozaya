@@ -3,7 +3,7 @@ namespace App\Http\Enums;
 
 enum BlockChainEnum: int
 {
-    case ethereum = 1;
+//    case ethereum = 1;
     case tron = 2;
 //    case binance_smart_chain = 3;
 //    case bitcoin = 4;
@@ -12,7 +12,7 @@ enum BlockChainEnum: int
     public function label(): string
     {
         return match ($this) {
-            self::ethereum => 'ethereum',
+//            self::ethereum => 'ethereum',
             self::tron => 'tron',
 //            self::binance_smart_chain => 'bsc',
 //            self::bitcoin => 'bitcoin',
@@ -59,7 +59,7 @@ enum BlockChainEnum: int
     {
         return match ($name) {
             'tron' => self::tron,
-            'ethereum' => self::ethereum,
+//            'ethereum' => self::ethereum,
             default => throw new \InvalidArgumentException("Unknown blockchain: {$name}")
         };
     }
