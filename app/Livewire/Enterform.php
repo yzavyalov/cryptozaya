@@ -7,7 +7,7 @@ use Livewire\Component;
 
 class Enterform extends Component
 {
-    public bool $codeSent = false;
+    public $codeSent = false;
     public string $email = '';
     public string $code = '';
     public int $codeTtl = 600; // 10 минут
