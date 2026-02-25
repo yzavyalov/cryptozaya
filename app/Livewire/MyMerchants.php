@@ -83,7 +83,7 @@ class MyMerchants extends Component
     {
         $merchant = Merchant::query()->findOrFail($merchantId);
 
-        if ($merchant->mainWallet) {
+        if ($merchant->mainWallet()) {
             return;
         }
 
