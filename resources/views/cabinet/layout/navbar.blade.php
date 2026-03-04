@@ -29,6 +29,7 @@
                             <li><a class="dropdown-item" href="{{ route('new-merchant') }}">Add merchant</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ route('my-merchants') }}">My merchants</a></li>
+                            <li><a class="dropdown-item" href="{{ route('send-callback') }}">Send callback</a></li>
                             <li><a class="dropdown-item" href="{{ route('all-merchant-transactions') }}">All transactions</a></li>
                             <li><a class="dropdown-item" href="{{ route('all-deposits') }}">All deposits</a></li>
                         </ul>

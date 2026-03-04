@@ -2,42 +2,75 @@
 
 namespace App\Services\Operations\MerchantWallet;
 
-use App\Models\Merchant;
+use App\Http\Enums\MerchantTransactionStatusEnum;
+use App\Http\Enums\MerchantTypeTransactionEnum;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Throwable;
 
 class MerchantWebhookService
 {
-    public function sendWebhook($merchantTransactions)
+    public function sendWebhook($merchant, $merchantTransactions)
     {
-        $merchant = Merchant::query()->findOrFail($merchantTransactions->merchant_id);
+        $data = $merchantTransactions;
 
-        $data['signature'] = hash('sha256', json_encode($merchant->name));
+        $data['signature'] = $merchant->token;
 
-        $this->sendRequest($merchant->cburl, $data);
+        return $this->sendRequest($merchant->cburl, $data);
     }
 
-    protected function sendRequest(string $path, array $body = [])
+
+
+    protected function sendRequest(string $path, array $body = []): array
     {
+        try {
 
-        $signature = $body['signature'];
+            $signature = $body['signature'] ?? null;
 
-        // Отправка POST запроса с заголовком X-Signature
-        $response = Http::withHeaders([
-            'X-Signature' => $signature
-        ])->post($path, $body);
+            $response = Http::timeout(10)
+                ->withHeaders([
+                    'X-Signature' => $signature,
+                ])
+                ->post($path, $body);
 
-        if ($response->failed()) {
-            Log::error('Tron node request failed', [
-                'path' => $path,
-                'body' => $body,
-                'status' => $response->status(),
-                'response' => $response->body()
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'status'  => $response->status(),
+                    'data'    => $response->json(),
+                ];
+            }
+
+            // если 4xx / 5xx
+            Log::error('Webhook request failed', [
+                'path'     => $path,
+                'body'     => $body,
+                'status'   => $response->status(),
+                'response' => $response->body(),
             ]);
-            throw new \Exception("Tron node error: " . $response->body());
-        }
 
-        return $response->json();
+            return [
+                'success' => false,
+                'status'  => $response->status(),
+                'error'   => $response->body(),
+            ];
+
+        } catch (Throwable $e) {
+
+            // если вообще network ошибка (DNS, timeout и тд)
+            Log::error('Webhook request exception', [
+                'path'  => $path,
+                'body'  => $body,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'status'  => null,
+                'error'   => $e->getMessage(),
+            ];
+        }
     }
 
     protected function responseDataToMerch($type)
@@ -47,5 +80,43 @@ class MerchantWebhookService
             'amount' => $amount,
             ''
         ]);
+    }
+
+
+    public function sendExampleDepositCallback($merchant)
+    {
+        $exampleData = [
+            'merchant_id' => $merchant->id,
+            'type_transactions' => MerchantTypeTransactionEnum::deposit->label(),
+            'status' => MerchantTransactionStatusEnum::successful->label(),
+            'network' => 'tron',
+            'wallet_from' => Str::random(33),
+            'wallet_to' => Str::random(33),
+            'merchant_system_user_id' => Str::random(6),
+            'merchant_system_transaction_id' => Str::random(12),
+            'sum' => rand(100, 1000),
+            'currency' => 'GBP',
+        ];
+
+        return $this->sendWebhook($merchant,$exampleData);
+    }
+
+
+    public function sendExampleWithdrawCallback($merchant)
+    {
+        $exampleData = [
+            'merchant_id' => $merchant->id,
+            'type_transactions' => MerchantTypeTransactionEnum::withdraw->label(),
+            'status' => MerchantTransactionStatusEnum::successful->label(),
+            'network' => 'tron',
+            'wallet_from' => Str::random(33),
+            'wallet_to' => Str::random(33),
+            'merchant_system_user_id' => Str::random(6),
+            'merchant_system_transaction_id' => Str::random(12),
+            'sum' => rand(100, 1000),
+            'currency' => 'GBP',
+        ];
+
+        return $this->sendWebhook($merchant,$exampleData);
     }
 }

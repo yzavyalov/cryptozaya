@@ -14,6 +14,7 @@ use App\Services\Operations\MerchantWallet\MerchantTransactionService;
 use App\Services\Operations\MerchantWallet\MerchantWalletService;
 use App\Services\Tron\ExchangeTronCoinGekoService;
 use App\Services\Tron\TronService;
+use Illuminate\Support\Facades\Log;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use App\Exceptions\TronSendMoneyException;
 
@@ -105,7 +106,7 @@ class OperationController extends Controller
             $result = $this->tronService->send(CurrencyService::curencyForTronBlockchain($validated['currency']),$merchantWallet->private_key,$validated['address'],$validated['amount']);
 
             $merchantTransaction->update(['status' => MerchantTransactionStatusEnum::successful]);
-
+            Log::info('Transaction sent', ['tx' => $result]);
             return response()->json([
                 'status' => 'ok',
                 'txHash' => $result['data']['txHash'],

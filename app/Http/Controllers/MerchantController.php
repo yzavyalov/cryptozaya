@@ -63,7 +63,7 @@ class MerchantController extends Controller
                 'merchants.id',
                 Auth::user()->merchants()->pluck('merchants.id')
             );
-        })->get();
+        })->paginate(25);
 
         return view('cabinet.operations.all-merchant-transactions', compact('transactions'));
     }

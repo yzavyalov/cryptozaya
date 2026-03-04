@@ -73,7 +73,7 @@ class Enterform extends Component
         $result = $service->verify($this->code, $this->email);
 
         if (!$result) {
-            $this->addError('code', 'Неверный код!');
+            $this->addError('code', 'The code is wrong!');
             return;
         }
 

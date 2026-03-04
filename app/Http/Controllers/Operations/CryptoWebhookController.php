@@ -109,12 +109,8 @@ Log::info('transaction created', $validated);
             $merchant = $merchantWallet->merchant;
 
             if (!empty($merchant->cburl))
-                $this->merchantWebHookService->sendWebhook($merchantTransactions);
+                $this->merchantWebHookService->sendWebhook($merchantTransactions?->toArray());
         }
-
-
-
-
 
 
 Log::info('deposit', $data);

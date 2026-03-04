@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\CallbackController;
 use App\Http\Controllers\BalanceController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\MerchantController;
@@ -36,6 +37,8 @@ Route::middleware(['cabinet'])->group(function (){
     Route::get('/all-merchant-transactions',[MerchantController::class,'transcationHistory'])->name('all-merchant-transactions');
     Route::get('/all-merchant-deposits',[MerchantController::class,'allDeposits'])->name('all-deposits');
     Route::post('/withdraw-deposits',[WithdrawDepositsController::class,'withdrawDeposits'])->name('withdraw.deposits');
+    Route::get('/send-callback',[CallbackController::class,'index'])->name('send-callback');
+    Route::get('send-transaction-callback/{id}',[CallbackController::class,'sendCallback'])->name('send-transaction-callback');
 
 
     //operations
