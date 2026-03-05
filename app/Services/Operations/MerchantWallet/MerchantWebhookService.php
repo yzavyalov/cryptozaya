@@ -18,6 +18,8 @@ class MerchantWebhookService
         $data['merchant'] = $merchant['name'];
         $data['type'] = MerchantTypeTransactionEnum::from($merchantTransactions['type_transactions'])->label();
         $data['type_id'] = $merchantTransactions['type_transactions'];
+        $data['status'] = MerchantTransactionStatusEnum::from($merchantTransactions['status'])->label();
+        $data['status_id'] = $merchantTransactions['status'];
         $data['network'] = $merchantTransactions['network'];
         $data['merchant_system_user_id'] = $merchantTransactions['merchant_system_user_id'];
         $data['merchant_system_transaction_id'] = $merchantTransactions['merchant_system_transaction_id'];
