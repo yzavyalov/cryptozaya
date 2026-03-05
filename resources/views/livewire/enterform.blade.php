@@ -36,6 +36,7 @@
         {{-- Форма ввода кода --}}
         @if ($codeSent)
             <form wire:submit.prevent="verifyCode">
+                @csrf
                 <div class="mb-3">
                     <label for="code" class="form-label">Enter your code:</label>
                     <input type="text"
