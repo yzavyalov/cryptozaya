@@ -4,6 +4,7 @@ namespace App\Services\Operations\MerchantWallet;
 
 use App\Http\Enums\MerchantTransactionStatusEnum;
 use App\Http\Enums\MerchantTypeTransactionEnum;
+use App\Services\Operations\CurrencyService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -13,8 +14,15 @@ class MerchantWebhookService
 {
     public function sendWebhook($merchant, $merchantTransactions)
     {
-        $data = $merchantTransactions;
-
+        $data['id'] = $merchantTransactions['id'];
+        $data['merchant'] = $merchant['name'];
+        $data['type'] = MerchantTypeTransactionEnum::from($merchantTransactions['type_transactions'])->label();
+        $data['type_id'] = $merchantTransactions['type_transactions'];
+        $data['network'] = $merchantTransactions['network'];
+        $data['merchant_system_user_id'] = $merchantTransactions['merchant_system_user_id'];
+        $data['merchant_system_transaction_id'] = $merchantTransactions['merchant_system_transaction_id'];
+        $data['amount'] = $merchantTransactions['sum'];
+        $data['currency'] = CurrencyService::tronDBNameToken($merchantTransactions['currency_id']);
         $data['signature'] = $merchant->token;
 
         return $this->sendRequest($merchant->cburl, $data);
