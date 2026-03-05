@@ -77,7 +77,7 @@ class Enterform extends Component
             return;
         }
 
-        return redirect()->route('cabinet');
+        return $this->redirectRoute('cabinet');
     }
 
     public function getRemainingTimeProperty(): int
