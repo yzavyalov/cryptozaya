@@ -51,7 +51,7 @@
                     @enderror
 
                     {{-- Таймер с автоматическим обновлением --}}
-                    <div class="mt-2 text-muted fw-semibold" @if(!$stopPoll) wire:poll.1s @endif>
+                    <div class="mt-2 text-muted fw-semibold" wire:poll.1s>
                         The code sent to you by email will be valid: {{ $this->formattedTime }}
                     </div>
 
