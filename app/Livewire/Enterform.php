@@ -8,96 +8,94 @@ use Livewire\Component;
 class Enterform extends Component
 {
     public bool $codeSent = false;
-    public string $email = '';
-    public string $code = '';
-    public int $codeTtl = 600; // 10 минут
-    public ?int $expiresAt = null;
 
-    public bool $stopPoll = false;
+    public string $email = '';
+    public string $code  = '';
+
+    public int $codeTtl = 600; // seconds
+    public ?int $expiresAt = null; // unix timestamp
 
     protected ?TwoFactorService $twoFactorService = null;
 
-    public function mount(TwoFactorService $twoFactorService)
+    public function mount(TwoFactorService $twoFactorService): void
     {
         $this->twoFactorService = $twoFactorService;
     }
 
     protected function rules(): array
     {
-        // если код уже отправлен — валидируем оба поля
         if ($this->codeSent) {
             return [
-                'email' => 'required|email',
-                'code'  => 'required|string|max:6',
+                'email' => ['required', 'email'],
+                'code'  => ['required', 'string', 'max:6'],
             ];
         }
 
-        // если код ещё не отправлен — только email
         return [
-            'email' => 'required|email',
+            'email' => ['required', 'email'],
         ];
     }
 
-    public function sendCode()
+    public function sendCode(): void
     {
+        $this->resetErrorBag();
         $this->validate();
 
         $service = $this->twoFactorService ?? app(TwoFactorService::class);
-        $result = $service->enter($this->email);
+        $result  = $service->enter($this->email);
 
         if (!is_array($result) || empty($result['cachename'])) {
             $this->addError('email', $result['message'] ?? 'Ошибка при отправке кода');
             return;
         }
 
-        $this->codeSent = true;
-        $this->expiresAt = (int) now()->addSeconds($this->codeTtl)->timestamp;
+        $this->codeSent  = true;
+        $this->code      = '';
+        $this->expiresAt = now()->addSeconds($this->codeTtl)->timestamp;
     }
 
-    public function resendCode()
+    public function resendCode(): void
     {
+        $this->resetErrorBag();
+
+        // если email пустой — не шлём
+        if (blank($this->email)) {
+            $this->addError('email', 'Email is required');
+            return;
+        }
+
         $service = $this->twoFactorService ?? app(TwoFactorService::class);
-        $result = $service->enter($this->email);
+        $result  = $service->enter($this->email);
 
         if (!is_array($result) || empty($result['cachename'])) {
             $this->addError('email', $result['message'] ?? 'Ошибка при повторной отправке');
             return;
         }
 
-        $this->expiresAt = (int) now()->addSeconds($this->codeTtl)->timestamp;
+        $this->code      = '';
+        $this->expiresAt = now()->addSeconds($this->codeTtl)->timestamp;
+
+        // Скажем Alpine “таймер перезапустить”
+        $this->dispatch('timer-reset', expiresAt: $this->expiresAt);
     }
 
     public function verifyCode()
     {
-        $this->stopPoll = true;       // stop polling right away
-
+        $this->resetErrorBag();
         $this->validate();
 
-        $service = $this->twoFactorService ?? app(\App\Services\TwoFactorService::class);
-        $result = $service->verify($this->code, $this->email);
+        $service = $this->twoFactorService ?? app(TwoFactorService::class);
 
-        if (!$result) {
-            $this->stopPoll = false;  // если код неверный — продолжим таймер
+        $ok = $service->verify($this->code, $this->email);
+
+        if (!$ok) {
             $this->addError('code', 'The code is wrong!');
             return;
         }
 
+        // В Livewire 3 — только так
         return $this->redirectRoute('cabinet');
     }
-
-    public function getRemainingTimeProperty(): int
-    {
-        if (!$this->expiresAt) return 0;
-        return max(0, $this->expiresAt - now()->timestamp);
-    }
-
-    public function getFormattedTimeProperty(): string
-    {
-        $seconds = $this->remainingTime;
-        return sprintf('%02d:%02d', floor($seconds / 60), $seconds % 60);
-    }
-
-    public function tick() {}
 
     public function render()
     {
