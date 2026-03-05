@@ -13,6 +13,8 @@ class Enterform extends Component
     public int $codeTtl = 600; // 10 минут
     public ?int $expiresAt = null;
 
+    public bool $stopPoll = false;
+
     protected ?TwoFactorService $twoFactorService = null;
 
     public function mount(TwoFactorService $twoFactorService)
@@ -67,12 +69,15 @@ class Enterform extends Component
 
     public function verifyCode()
     {
+        $this->stopPoll = true;       // stop polling right away
+
         $this->validate();
 
-        $service = $this->twoFactorService ?? app(TwoFactorService::class);
+        $service = $this->twoFactorService ?? app(\App\Services\TwoFactorService::class);
         $result = $service->verify($this->code, $this->email);
 
         if (!$result) {
+            $this->stopPoll = false;  // если код неверный — продолжим таймер
             $this->addError('code', 'The code is wrong!');
             return;
         }

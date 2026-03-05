@@ -36,7 +36,6 @@
         {{-- Форма ввода кода --}}
         @if ($codeSent)
             <form wire:submit.prevent="verifyCode">
-                @csrf
                 <div class="mb-3">
                     <label for="code" class="form-label">Enter your code:</label>
                     <input type="text"
@@ -52,7 +51,7 @@
                     @enderror
 
                     {{-- Таймер с автоматическим обновлением --}}
-                    <div class="mt-2 text-muted fw-semibold" wire:poll.1s>
+                    <div class="mt-2 text-muted fw-semibold" @if(!$stopPoll) wire:poll.1s @endif>
                         The code sent to you by email will be valid: {{ $this->formattedTime }}
                     </div>
 
