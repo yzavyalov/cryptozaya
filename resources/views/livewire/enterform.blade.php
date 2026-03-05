@@ -51,15 +51,15 @@
                     @enderror
 
                     {{-- Таймер с автоматическим обновлением --}}
-                    @if(!$this->stopPoll)
-                        <div class="mt-2 text-muted fw-semibold" wire:poll.1s="tick">
-                            The code sent to you by email will be valid: {{ $this->formattedTime }}
-                        </div>
-                    @else
-                        <div class="mt-2 text-muted fw-semibold">
-                            The code sent to you by email will be valid: {{ $this->formattedTime }}
-                        </div>
-                    @endif
+{{--                    @if(!$this->stopPoll)--}}
+{{--                        <div class="mt-2 text-muted fw-semibold" wire:poll.1s="tick">--}}
+{{--                            The code sent to you by email will be valid: {{ $this->formattedTime }}--}}
+{{--                        </div>--}}
+{{--                    @else--}}
+{{--                        <div class="mt-2 text-muted fw-semibold">--}}
+{{--                            The code sent to you by email will be valid: {{ $this->formattedTime }}--}}
+{{--                        </div>--}}
+{{--                    @endif--}}
 
                     {{-- Кнопка повторной отправки кода --}}
                     <div class="text-center"><button class="btn btn-outline-secondary" type="button" wire:click="resendCode">Send new code</button></div>
