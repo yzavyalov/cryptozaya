@@ -115,6 +115,7 @@ class MerchantWebhookService
     public function sendExampleWithdrawCallback($merchant)
     {
         $exampleData = [
+            'id' => rand(1, 1000),
             'merchant_id' => $merchant->id,
             'type_transactions' => MerchantTypeTransactionEnum::withdraw->label(),
             'status' => MerchantTransactionStatusEnum::successful->label(),
