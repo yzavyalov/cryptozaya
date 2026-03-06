@@ -98,8 +98,8 @@ class MerchantWebhookService
         $exampleData = [
             'id' => rand(1, 1000),
             'merchant_id' => $merchant->id,
-            'type_transactions' => MerchantTypeTransactionEnum::deposit->label(),
-            'status' => MerchantTransactionStatusEnum::successful->label(),
+            'type_transactions' => MerchantTypeTransactionEnum::deposit,
+            'status' => MerchantTransactionStatusEnum::successful,
             'network' => 'tron',
             'wallet_from' => Str::random(33),
             'wallet_to' => Str::random(33),
