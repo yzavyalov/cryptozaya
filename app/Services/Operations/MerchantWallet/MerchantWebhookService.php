@@ -96,6 +96,7 @@ class MerchantWebhookService
     public function sendExampleDepositCallback($merchant)
     {
         $exampleData = [
+            'id' => rand(1, 1000),
             'merchant_id' => $merchant->id,
             'type_transactions' => MerchantTypeTransactionEnum::deposit->label(),
             'status' => MerchantTransactionStatusEnum::successful->label(),
