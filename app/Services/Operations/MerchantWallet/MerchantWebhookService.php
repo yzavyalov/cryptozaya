@@ -106,7 +106,7 @@ class MerchantWebhookService
             'merchant_system_user_id' => Str::random(6),
             'merchant_system_transaction_id' => Str::random(12),
             'sum' => rand(100, 1000),
-            'currency' => 'GBP',
+            'currency_id' => 2,
         ];
 
         return $this->sendWebhook($merchant,$exampleData);
