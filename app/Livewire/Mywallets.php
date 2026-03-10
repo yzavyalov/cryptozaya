@@ -37,48 +37,48 @@ class Mywallets extends Component
      */
     public function loadWalletsBalancies()
     {
-        Log::info('Start loadWalletsBalancies', [
-            'wallets_count' => count($this->wallets),
-            'time' => now()
-        ]);
+//        Log::info('Start loadWalletsBalancies', [
+//            'wallets_count' => count($this->wallets),
+//            'time' => now()
+//        ]);
 
         $this->wallets = collect($this->wallets)->map(function ($wallet) {
-            Log::info('Processing wallet', [
-                'number'  => $wallet['number'] ?? null,
-                'hex'     => $wallet['hex'] ?? null,
-                'network' => $wallet['network']
-            ]);
+//            Log::info('Processing wallet', [
+//                'number'  => $wallet['number'] ?? null,
+//                'hex'     => $wallet['hex'] ?? null,
+//                'network' => $wallet['network']
+//            ]);
 
             if (strtolower($wallet['network']) === 'tron') {
                 try {
                     $address = $wallet['number'] ?? $wallet['hex'];
 
-                    Log::info('Fetching balances from Tron node', ['address' => $address]);
+//                    Log::info('Fetching balances from Tron node', ['address' => $address]);
 
                     $response = app(TronService::class)->getAllBalances($address);
 
-                    Log::info('Node response', [
-                        'wallet' => $wallet['number'],
-                        'response' => $response
-                    ]);
+//                    Log::info('Node response', [
+//                        'wallet' => $wallet['number'],
+//                        'response' => $response
+//                    ]);
 
                     $wallet['balances'] = $response['balances'] ?? [];
                 } catch (\Exception $e) {
                     $wallet['balances'] = ['error' => $e->getMessage()];
-                    Log::error('Error fetching balances', [
-                        'wallet' => $wallet['number'],
-                        'error' => $e->getMessage()
-                    ]);
+//                    Log::error('Error fetching balances', [
+//                        'wallet' => $wallet['number'],
+//                        'error' => $e->getMessage()
+//                    ]);
                 }
             }
 
             return $wallet;
         })->toArray();
 
-        Log::info('Finished loadWalletsBalancies', [
-            'wallets_count' => count($this->wallets),
-            'time' => now()
-        ]);
+//        Log::info('Finished loadWalletsBalancies', [
+//            'wallets_count' => count($this->wallets),
+//            'time' => now()
+//        ]);
     }
 
     /**
@@ -87,13 +87,13 @@ class Mywallets extends Component
     public function createWallet($blockchain)
     {
         if (strtolower($blockchain) !== 'tron') {
-            Log::info('Blockchain not supported', ['blockchain' => $blockchain]);
+//            Log::info('Blockchain not supported', ['blockchain' => $blockchain]);
             return;
         }
 
         try {
             $response = app(TronService::class)->createWallet();
-            Log::info('response', ['response' => $response]);
+//            Log::info('response', ['response' => $response]);
 
             // Поддерживаем несколько форматов: ['wallet'=>...], ['data'=>['wallet'=>...]] или плоский ответ с address
             $newWallet = $response['wallet']
@@ -101,14 +101,14 @@ class Mywallets extends Component
                 ?? (isset($response['address']) ? $response : null);
 
             if (!is_array($newWallet) || empty($newWallet['address'] ?? $newWallet['number'])) {
-                Log::error('Invalid TronService response', ['response' => $response]);
+//                Log::error('Invalid TronService response', ['response' => $response]);
                 throw new \RuntimeException('Invalid TronService response: wallet address missing');
             }
 
             // Нормализуем поля
             $number = $newWallet['number'] ?? $newWallet['address'] ?? null;
 
-            Log::info('wallet response', ['wallet' => $newWallet]);
+//            Log::info('wallet response', ['wallet' => $newWallet]);
 
             $createWallet = app(WalletService::class)->createWallet(
                 $blockchain,
@@ -121,12 +121,19 @@ class Mywallets extends Component
                 Auth::id()
             );
 
-            Log::info('New Tron wallet created', ['wallet' => $createWallet]);
+//            Log::info('New Tron wallet created', ['wallet' => $createWallet]);
         } catch (\Throwable $e) {
-            Log::error('Error creating Tron wallet', ['error' => $e->getMessage()]);
+//            Log::error('Error creating Tron wallet', ['error' => $e->getMessage()]);
         }
 
         // Обновляем список кошельков после создания
+        $this->loadWallets();
+        $this->loadWalletsBalancies();
+    }
+
+    public function refreshWallets()
+    {
+        $this->user = Auth::user()->fresh();
         $this->loadWallets();
         $this->loadWalletsBalancies();
     }
