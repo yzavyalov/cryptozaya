@@ -251,7 +251,8 @@ async function scanBlocks() {
     // 3️⃣ Таймер на обновление кошельков каждые 10 минут
     setInterval(async () => {
         await fetchWalletsAndSave();
-        logToFile("Wallets refreshed via timer");
+        await syncWallets();
+        logToFile(`Wallets refreshed via timer. In-memory count: ${WATCHED_WALLETS.size}`);
     }, WALLET_SYNC_INTERVAL);
 
     // 4️⃣ Запуск сканирования блоков каждые 30 секунд
