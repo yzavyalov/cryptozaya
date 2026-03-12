@@ -55,9 +55,6 @@ class CryptoWebhookController extends Controller
             'block'  => 'required|integer|min:0',
         ])->validate(); // ->validate() автоматически выбросит ValidationException, если что-то не так
 
-        // --- Логируем проверенные данные ---
-        Log::info('Webhook received', $validated);
-
 
         // --- Проверка, принадлежит ли адрес нам ---
         $wallet = Wallet::query()->where('number', $validated['to'])->first();
@@ -67,7 +64,7 @@ class CryptoWebhookController extends Controller
         if (!$wallet && !$merchantWallet) {
             return response()->json(['ignored' => true]);
         }
-Log::info('wallet found', compact('wallet'));
+
 
         // --- Логика депозита ---
         $this->transactionService->create(
@@ -77,8 +74,6 @@ Log::info('wallet found', compact('wallet'));
             $validated['amount'],
             CurrencyService::tronToken($validated['type'])
         );
-Log::info('transaction created', $validated);
-
 
         if ($merchantWallet)
         {
@@ -86,14 +81,14 @@ Log::info('transaction created', $validated);
                                                                 ->where('sum',$data['amount'])
                                                                 ->where('status', MerchantTransactionStatusEnum::created)
                                                                 ->first();
-            Log::info('merchant transaction found', compact('merchantTransactions'));
-            if ($merchantTransactions) {
+            if ($merchantTransactions)
+            {
                 $merchantTransactions->update(['status' => MerchantTransactionStatusEnum::successful->value]);
-                Log::info('merchant transaction updated', compact('merchantTransactions'));
             }
-            else{
+            else
+            {
                 $merchantTransaction = $this->merchantTransactionService->create($merchantWallet->merchant_id,
-                                            MerchantTypeTransactionEnum::deposit->value,
+                                                    MerchantTypeTransactionEnum::deposit->value,
                                                     MerchantTransactionStatusEnum::withoutInitialization->value,
                                                 'tron',
                                                           $validated['from'],
@@ -103,7 +98,6 @@ Log::info('transaction created', $validated);
                                                           $validated['amount'],
                                                           CurrencyService::tronToken($validated['type']));
 
-                Log::info('merchant transaction created 2', compact('merchantTransactions'));
             }
 
             $merchant = $merchantWallet->merchant;
@@ -113,7 +107,6 @@ Log::info('transaction created', $validated);
         }
 
 
-Log::info('deposit', $data);
         return response()->json(['ok' => true]);
     }
 
