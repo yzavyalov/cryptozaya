@@ -77,51 +77,127 @@ class OperationController extends Controller
     {
         $validated = $request->validated();
 
-        if (isset($validated['currency_to']) && !empty($validated['currency_to']))
-        {
-            $validated['amount'] = $validated['amount'] * $this->exchangeTronCoinGekoService->getExchangeRate($validated['currency'], $validated['currency_to']);
+        if (isset($validated['currency_to']) && !empty($validated['currency_to'])) {
+            $validated['amount'] = $validated['amount'] *
+                $this->exchangeTronCoinGekoService->getExchangeRate(
+                    $validated['currency'],
+                    $validated['currency_to']
+                );
 
             $validated['currency'] = $validated['currency_to'];
         }
 
         $merchant = $request->attributes->get('merchant');
 
-        $merchantWallet = $this->merchantWalletService->selectMerchantWalletForWithdraw($merchant, $validated['amount'], $validated['currency']);
+        $merchantWallet = $this->merchantWalletService->selectMerchantWalletForWithdraw(
+            $merchant,
+            $validated['amount'],
+            $validated['currency']
+        );
 
-        if($merchantWallet === null)
+        if ($merchantWallet === null) {
             return response()->json(['error' => 'Not enough balance'], 400);
+        }
 
-        $merchantTransaction = $this->merchantTransactionService->create($merchant->id,
-                                                            MerchantTypeTransactionEnum::withdraw,
-                                                            MerchantTransactionStatusEnum::created,
-                                                            'tron',
-                                                            $merchantWallet->number,
-                                                            $validated['address'],
-                                                            $validated['user_id'],
-                                                            $validated['transaction_id'],
-                                                            $validated['amount'],
-                                                            CurrencyService::tronToken($validated['currency']));
+        $merchantTransaction = $this->merchantTransactionService->create(
+            $merchant->id,
+            MerchantTypeTransactionEnum::withdraw,
+            MerchantTransactionStatusEnum::created,
+            'tron',
+            $merchantWallet->number,
+            $validated['address'],
+            $validated['user_id'],
+            $validated['transaction_id'],
+            $validated['amount'],
+            CurrencyService::tronToken($validated['currency'])
+        );
 
         try {
-            $result = $this->tronService->send(CurrencyService::curencyForTronBlockchain($validated['currency']),$merchantWallet->private_key,$validated['address'],$validated['amount']);
+            $result = $this->tronService->send(
+                CurrencyService::curencyForTronBlockchain($validated['currency']),
+                $merchantWallet->private_key,
+                $validated['address'],
+                $validated['amount']
+            );
 
-            $merchantTransaction->update(['status' => MerchantTransactionStatusEnum::successful]);
-            Log::info('Transaction sent', ['tx' => $result]);
+            Log::info('Tron withdraw response', ['tx' => $result]);
+
+            if (!empty($result['code']) && $result['code'] !== 'SUCCESS') {
+                $merchantTransaction->update([
+                    'status' => MerchantTransactionStatusEnum::canceled,
+                ]);
+
+                $message = $result['message'] ?? 'Transaction failed';
+
+                if ($this->isHex($message)) {
+                    $decodedMessage = hex2bin($message);
+                    if ($decodedMessage !== false) {
+                        $message = $decodedMessage;
+                    }
+                }
+
+                return response()->json([
+                    'status' => 'error',
+                    'code' => $result['code'],
+                    'message' => $message,
+                    'txHash' => $result['txid'] ?? null,
+                ], 422);
+            }
+
+            $txHash = $result['data']['txHash'] ?? $result['txid'] ?? null;
+
+            if (!$txHash) {
+                $merchantTransaction->update([
+                    'status' => MerchantTransactionStatusEnum::canceled,
+                ]);
+
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'INVALID_TRON_RESPONSE',
+                    'message' => 'Transaction response does not contain tx hash',
+                ], 422);
+            }
+
+            $merchantTransaction->update([
+                'status' => MerchantTransactionStatusEnum::successful,
+            ]);
+
             return response()->json([
                 'status' => 'ok',
-                'txHash' => $result['data']['txHash'],
+                'txHash' => $txHash,
             ]);
 
         } catch (TronSendMoneyException $e) {
-
-            $merchantTransaction->update(['status' => MerchantTransactionStatusEnum::canceled]);
+            $merchantTransaction->update([
+                'status' => MerchantTransactionStatusEnum::canceled,
+            ]);
 
             return response()->json([
                 'status' => 'error',
                 'code' => $e->getCodeName(),
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (\Throwable $e) {
+            $merchantTransaction->update([
+                'status' => MerchantTransactionStatusEnum::canceled,
+            ]);
+
+            Log::error('Withdraw failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'code' => 'INTERNAL_ERROR',
+                'message' => 'Internal server error',
+            ], 500);
         }
+    }
+
+    private function isHex(string $value): bool
+    {
+        return ctype_xdigit($value) && strlen($value) % 2 === 0;
     }
 
     public function exchange(ExchangeRequest $request)
