@@ -14,7 +14,7 @@ class MerchantWebhookService
 {
     public function sendWebhook($merchant, $merchantTransactions)
     {
-        $data['id'] = $merchantTransactions['id'];
+        $data['id'] = $merchantTransactions['id'] ?? null;
         $data['merchant'] = $merchant['name'];
         $data['type'] = MerchantTypeTransactionEnum::from($merchantTransactions['type_transactions'])->label();
         $data['type_id'] = $merchantTransactions['type_transactions'];
@@ -23,8 +23,8 @@ class MerchantWebhookService
         $data['network'] = $merchantTransactions['network'];
         $data['wallet_from'] = $merchantTransactions['wallet_from'];
         $data['wallet_to'] = $merchantTransactions['wallet_to'];
-        $data['merchant_system_user_id'] = $merchantTransactions['merchant_system_user_id'];
-        $data['merchant_system_transaction_id'] = $merchantTransactions['merchant_system_transaction_id'];
+        $data['merchant_system_user_id'] = $merchantTransactions['merchant_system_user_id'] ?? null;
+        $data['merchant_system_transaction_id'] = $merchantTransactions['merchant_system_transaction_id'] ?? null;
         $data['amount'] = $merchantTransactions['sum'];
         $data['currency'] = CurrencyService::tronDBNameToken($merchantTransactions['currency_id']);
         $data['signature'] = $merchant->token;
