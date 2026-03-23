@@ -76,10 +76,10 @@ class MerchantController extends Controller
                 Auth::user()->merchants()->pluck('merchants.id')
             );
         })
-            ->where('type_transactions', MerchantTypeTransactionEnum::deposit)
+            ->where('type_transactions', MerchantTypeTransactionEnum::deposit->value)
             ->whereIn('status', [
-                MerchantTransactionStatusEnum::successful,
-                MerchantTransactionStatusEnum::withoutInitialization, // ← второй статус
+                MerchantTransactionStatusEnum::successful->value,
+                MerchantTransactionStatusEnum::withoutInitialization->value, // ← второй статус
             ])
             ->get();
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Operations;
 
 use App\Http\Controllers\Controller;
+use App\Http\Enums\BlockChainEnum;
 use App\Http\Enums\MerchantTransactionStatusEnum;
 use App\Http\Enums\MerchantTypeTransactionEnum;
 use App\Http\Requests\MainWalletRequest;
@@ -27,16 +28,28 @@ class WithdrawDepositsController extends Controller
 
         $merchant = $walletMerchant->merchant;
 
-        $merchantMainWallet = $merchant->mainWallet();
+        $merchantMainWallet = $merchant->mainWallet()->first();
 
-        $deposits = $merchant->transactions()->where('type_transactions',MerchantTypeTransactionEnum::deposit)
-            ->whereIn('status', [MerchantTransactionStatusEnum::successful,
-                                 MerchantTransactionStatusEnum::withoutInitialization])->get();
+        $deposits = $merchant->transactions()->where('type_transactions',MerchantTypeTransactionEnum::deposit->value)
+            ->whereIn('status', [MerchantTransactionStatusEnum::successful->value,
+                                 MerchantTransactionStatusEnum::withoutInitialization->value])->get();
 
         //считаем комиссию
         $allCommission['total_fee'] = 0;
 
         $transactions = [];
+
+        $merchantTransaction = null;
+
+        if ($deposits->isEmpty())
+        {
+                return redirect()
+                    ->back()
+                    ->withInput()
+                    ->withErrors([
+                        'balance' => 'We didn\'t find deposits'
+                    ]);
+        }
 
         foreach ($deposits as $deposit)
         {
@@ -44,14 +57,18 @@ class WithdrawDepositsController extends Controller
 
             $commission =$this->tronService->estimateTRC20Fee($token,$deposit->wallet_to,$merchantMainWallet->number,$deposit->sum);
 
-            $transactions[] = ['address' => $deposit->wallet_to,
-                                        'amount' => $deposit->sum,
-                                        'token' => $token,
-                                        'commission' => $commission['total_fee']];
+            $transactions[] = [
+                                'address' => $deposit->wallet_to,
+                                'amount' => $deposit->sum,
+                                'token' => $token,
+                                'commission' => $commission['total_fee']
+            ];
 
             $allCommission['total_fee'] += $commission['total_fee'];
 
             $allCommission['fee_currency'] = $commission['fee_currency'];
+
+            $merchantTransaction = $deposit;
         }
 
         $balanceMerchantMainWallet = $this->tronService->getAllBalances($merchantMainWallet->number);
@@ -62,7 +79,7 @@ class WithdrawDepositsController extends Controller
                 ->back()
                 ->withInput()
                 ->withErrors([
-                    'balance' => 'You need to top up your balance for the commission on '.$allCommission['total_fee'].$allCommission['fee_currency'],
+                    'balance' => 'You need to top up your balance '.$merchantMainWallet->number.' for the commission on '.$allCommission['total_fee'].$allCommission['fee_currency'],
                 ]);
         }
         else
@@ -71,7 +88,7 @@ class WithdrawDepositsController extends Controller
             {
                 $realBalance = $this->tronService->getAllBalances($transaction['address']);
                 //делаем транзакцию в трх
-                if ($realBalance['balances'][$transaction['token']] >= $transaction['amount'])
+                if (bccomp($realBalance['balances'][$transaction['token']], $transaction['amount'], 8) >= 0)
                 {
                     //делаем транзакцию в трх
                     $trx = $this->tronService->send('TRX',$merchantMainWallet->private_key, $transaction['address'], $transaction['commission']);
@@ -86,7 +103,24 @@ class WithdrawDepositsController extends Controller
 
                         if ($tokenTransaction)
                         {
-                            $transaction->update(['status' => MerchantTransactionStatusEnum::paid]);
+                            $merchantTransaction->update(['status' => MerchantTransactionStatusEnum::paid->value]);
+                        }
+                    }
+                }
+                else
+                {
+                    $merchantTransaction->update(['status' => MerchantTransactionStatusEnum::canceled->value]);
+
+                    //проверяем остальные балансы и перекидываем их
+                    $realBalance = $this->tronService->getAllBalances($transaction['address']);
+
+                    $currencies = BlockChainEnum::network();
+
+                    foreach ($currencies['tron'] as $currency)
+                    {
+                        if (bccomp($realBalance['balances'][$currency], 0, 8) >= 0)
+                        {
+                            $tokenTransaction = $this->tronService->send(CurrencyService::curencyForTronBlockchain($currency),MerchantWalletService::getPrivateKey($transaction['address']), $merchantMainWallet->number, $realBalance['balances'][$currency]);
                         }
                     }
                 }

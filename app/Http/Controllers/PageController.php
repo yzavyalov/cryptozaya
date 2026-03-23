@@ -26,4 +26,9 @@ class PageController extends Controller
         return view('cabinet.documentation');
     }
 
+    public function merchantMainWallet()
+    {
+        return view('cabinet.operations.main-merchant-wallets');
+    }
+
 }

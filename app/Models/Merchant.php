@@ -38,12 +38,12 @@ class Merchant extends Model
 
     public function mainWallet()
     {
-        return $this->wallets()->where('status', MerchantWalletStatusEnum::MAIN)->first();
+        return $this->wallets()->where('status', MerchantWalletStatusEnum::MAIN->value);
     }
 
     public function withDrawWallet()
     {
-        return $this->wallets()->where('status',MerchantWalletStatusEnum::WITHDRAW)->first();
+        return $this->wallets()->where('status',MerchantWalletStatusEnum::WITHDRAW->value);
     }
 
     public function transactions(): HasMany

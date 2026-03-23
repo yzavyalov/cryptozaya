@@ -37,13 +37,13 @@
                                         class="form-check-input"
                                         type="radio"
                                         name="wallet_id"
-                                        id="wallet{{ $merchant->mainWallet()->id }}"
-                                        value="{{ $merchant->mainWallet()->id }}"
-                                        {{ old('wallet_id', $loop->first ? $merchant->mainWallet()->id : null) == $merchant->mainWallet()->id ? 'checked' : '' }}
+                                        id="wallet{{ $merchant->mainWallet()->first()->id }}"
+                                        value="{{ $merchant->mainWallet()->first()->id }}"
+                                        {{ old('wallet_id', $loop->first ? $merchant->mainWallet()->first()->id : null) == $merchant->mainWallet()->first()->id ? 'checked' : '' }}
                                     >
 
-                                    <label class="form-check-label" for="wallet{{ $merchant->mainWallet()->id }}">
-                                        <strong>{{ $merchant->mainWallet()->number }}</strong>
+                                    <label class="form-check-label" for="wallet{{ $merchant->mainWallet()->first()->id }}">
+                                        <strong>{{ $merchant->mainWallet()->first()->number }}</strong>
                                         <span class="text-muted">({{ $merchant->name }})</span>
                                     </label>
                                 </div>

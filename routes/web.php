@@ -39,6 +39,7 @@ Route::middleware(['cabinet'])->group(function (){
     Route::post('/withdraw-deposits',[WithdrawDepositsController::class,'withdrawDeposits'])->name('withdraw.deposits');
     Route::get('/send-callback',[CallbackController::class,'index'])->name('send-callback');
     Route::get('send-transaction-callback/{id}',[CallbackController::class,'sendCallback'])->name('send-transaction-callback');
+    Route::get('merchants-main-wallets',[PageController::class,'merchantMainWallet'])->name('merchants-main-wallets');
 
 
     //operations
@@ -47,6 +48,8 @@ Route::middleware(['cabinet'])->group(function (){
     Route::get('my-wallets',[OperationController::class,'myWallets'])->name('my-wallets');
     Route::get('/commission',[OperationController::class,'commission'])->name('commission');
     Route::get('/wallet-balance',[OperationController::class,'walletBalance'])->name('wallet-balance');
+
+
 
     Route::get('cheklogs', function () {
         if (is_writable(storage_path('logs'))) {

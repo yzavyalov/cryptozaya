@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Http\Enums\BlockChainEnum;
 use App\Models\Currency;
+use App\Models\MerchantWallet;
 use App\Models\Wallet;
 use App\Services\Operations\CurrencyService;
 use App\Services\Operations\TransactionService;
@@ -43,12 +44,39 @@ class SendMoney extends Component
     {
         $this->wallet = Wallet::find($this->walletId);
 
-        if (!$this->wallet) {
+        if ($this->wallet) {
+            return;
+        }
+
+        $merchantWallet = MerchantWallet::find($this->walletId);
+
+        if (!$merchantWallet) {
             Log::error('Wallet not found', ['wallet_id' => $this->walletId]);
             session()->flash('error', 'Wallet not found.');
+            return;
         }
-    }
 
+        $merchant = $merchantWallet->merchant;
+
+        if (!$merchant) {
+            Log::error('Merchant not found for merchant wallet', ['wallet_id' => $this->walletId]);
+            session()->flash('error', 'Merchant not found.');
+            return;
+        }
+
+        $hasAccess = $merchant->users->contains('id', $this->user->id);
+
+        if (!$hasAccess) {
+            Log::warning('Unauthorized wallet access attempt', [
+                'wallet_id' => $this->walletId,
+                'user_id' => $this->user->id,
+            ]);
+            session()->flash('error', 'You do not have access to this wallet.');
+            return;
+        }
+
+        $this->wallet = $merchantWallet;
+    }
     /**
      * ВАЖНО:
      * Твой прошлый normalizeUtf8 вырезал ВСЁ кроме ASCII (регекс [^\x20-\x7E]),

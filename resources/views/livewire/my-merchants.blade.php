@@ -95,15 +95,15 @@
                             </td>
 
                             <td class="text-nowrap">
-                                @if($merchant->mainWallet())
-                                    {{ $merchant->mainWallet()->number }}
+                                @if($merchant->mainWallet()->first())
+                                    {{ $merchant->mainWallet()->first()->number }}
                                 @else
                                     <button wire:click="createMainWallet({{ $merchant->id }})" class="btn btn-sm btn-success">CREATE MAIN WALLET</button>
                                 @endif
                             </td>
                             <td class="text-nowrap">
-                                @if($merchant->withDrawWallet())
-                                    {{ $merchant->withDrawWallet()->number }}
+                                @if($merchant->withDrawWallet()->first())
+                                    {{ $merchant->withDrawWallet()->first()->number }}
                                 @else
                                     <button wire:click="createWithdrawWallet({{ $merchant->id }})" class="btn btn-sm btn-success">CREATE WITHDRAW WALLET</button>
                                 @endif
