@@ -136,7 +136,7 @@ class WithdrawDepositsController extends Controller
     {
         $validated = $request->validated();
 
-        Log::info('Withdraw deposits started', [
+        Log::info('Withdraw grouped deposits started', [
             'validated' => $validated,
         ]);
 
@@ -145,7 +145,7 @@ class WithdrawDepositsController extends Controller
         $merchantMainWallet = $merchant->mainWallet()->first();
 
         if (!$merchantMainWallet) {
-            Log::warning('Withdraw deposits aborted: main wallet not found', [
+            Log::warning('Withdraw aborted: main wallet not found', [
                 'wallet_id' => $validated['wallet_id'],
                 'merchant_id' => $merchant->id ?? null,
             ]);
@@ -164,9 +164,10 @@ class WithdrawDepositsController extends Controller
                 MerchantTransactionStatusEnum::successful->value,
                 MerchantTransactionStatusEnum::withoutInitialization->value,
             ])
+            ->orderBy('id')
             ->get();
 
-        Log::info('Withdraw deposits fetched', [
+        Log::info('Withdraw grouped deposits fetched', [
             'merchant_id' => $merchant->id ?? null,
             'count' => $deposits->count(),
         ]);
@@ -180,251 +181,232 @@ class WithdrawDepositsController extends Controller
                 ]);
         }
 
-        $transactions = [];
-        $allCommission = [
-            'total_fee' => '0',
-            'fee_currency' => 'TRX',
-        ];
+        $groupedDeposits = $deposits->groupBy(function ($deposit) {
+            return $deposit->wallet_to . '|' . $deposit->currency_id;
+        });
 
-        foreach ($deposits as $deposit) {
-            Log::info('Preparing deposit for withdraw', [
-                'deposit_id' => $deposit->id,
-                'wallet_to' => $deposit->wallet_to,
-                'sum' => $deposit->sum,
-                'currency_id' => $deposit->currency_id,
-                'status' => $deposit->status,
-            ]);
+        $processedGroups = 0;
+        $failedGroups = 0;
+        $paidDeposits = 0;
 
-            $token = CurrencyService::curencyForTronBlockchain(
-                CurrencyService::tronDBNameToken($deposit->currency_id)
-            );
-
-            $commission = $this->tronService->estimateTRC20Fee(
-                $token,
-                $deposit->wallet_to,
-                $merchantMainWallet->number,
-                $deposit->sum
-            );
-
-            if (!is_array($commission) || !isset($commission['total_fee'], $commission['fee_currency'])) {
-                Log::error('Invalid commission response', [
-                    'deposit_id' => $deposit->id,
-                    'commission' => $commission,
-                ]);
-
-                return redirect()
-                    ->back()
-                    ->withInput()
-                    ->withErrors([
-                        'balance' => 'Failed to estimate commission',
-                    ]);
-            }
-
-            $transactions[] = [
-                'deposit' => $deposit,
-                'deposit_id' => $deposit->id,
-                'address' => $deposit->wallet_to,
-                'amount' => (string) $deposit->sum,
-                'token' => $token,
-                'commission' => (string) $commission['total_fee'],
-                'fee_currency' => $commission['fee_currency'],
-            ];
-
-            $allCommission['total_fee'] = bcadd(
-                $allCommission['total_fee'],
-                (string) $commission['total_fee'],
-                8
-            );
-
-            $allCommission['fee_currency'] = $commission['fee_currency'];
-        }
-
-        $balanceMerchantMainWallet = $this->tronService->getAllBalances($merchantMainWallet->number);
-
-        Log::info('Main wallet balances received', [
-            'merchant_main_wallet' => $merchantMainWallet->number,
-            'balances' => $balanceMerchantMainWallet,
-        ]);
-
-        $mainFeeBalance = (string) ($balanceMerchantMainWallet['balances'][$allCommission['fee_currency']] ?? '0');
-
-        if (bccomp($mainFeeBalance, $allCommission['total_fee'], 8) < 0) {
-            return redirect()
-                ->back()
-                ->withInput()
-                ->withErrors([
-                    'balance' => 'You need to top up your balance ' .
-                        $merchantMainWallet->number .
-                        ' for the commission on ' .
-                        $allCommission['total_fee'] . ' ' .
-                        $allCommission['fee_currency'],
-                ]);
-        }
-
-        $processed = 0;
-        $failed = 0;
-
-        foreach ($transactions as $transaction) {
-            $deposit = $transaction['deposit'];
+        foreach ($groupedDeposits as $groupKey => $walletDeposits) {
+            $walletAddress = null;
+            $currencyId = null;
 
             try {
-                Log::info('Processing deposit withdraw', [
-                    'deposit_id' => $transaction['deposit_id'],
-                    'address' => $transaction['address'],
-                    'amount' => $transaction['amount'],
-                    'token' => $transaction['token'],
-                    'commission' => $transaction['commission'],
+                $firstDeposit = $walletDeposits->first();
+
+                if (!$firstDeposit) {
+                    Log::warning('Grouped deposits has no first deposit', [
+                        'group_key' => $groupKey,
+                    ]);
+                    $failedGroups++;
+                    continue;
+                }
+
+                $walletAddress = $firstDeposit->wallet_to;
+                $currencyId = $firstDeposit->currency_id;
+
+                $token = CurrencyService::curencyForTronBlockchain(
+                    CurrencyService::tronDBNameToken($currencyId)
+                );
+
+                Log::info('Processing grouped wallet/currency', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'currency_id' => $currencyId,
+                    'token' => $token,
+                    'deposits_count' => $walletDeposits->count(),
+                    'deposit_ids' => $walletDeposits->pluck('id')->toArray(),
                 ]);
 
-                $deposit->update([
-                    'status' => MerchantTransactionStatusEnum::processing->value,
+                $realBalance = $this->tronService->getAllBalances($walletAddress);
+                $walletTokenBalance = (string) ($realBalance['balances'][$token] ?? '0');
+
+                Log::info('Grouped wallet token balance checked', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'token' => $token,
+                    'balance' => $walletTokenBalance,
                 ]);
 
-                $realBalance = $this->tronService->getAllBalances($transaction['address']);
-                $tokenBalance = (string) ($realBalance['balances'][$transaction['token']] ?? '0');
-
-                Log::info('Deposit wallet balance checked', [
-                    'deposit_id' => $transaction['deposit_id'],
-                    'wallet' => $transaction['address'],
-                    'token' => $transaction['token'],
-                    'token_balance' => $tokenBalance,
-                    'required_amount' => $transaction['amount'],
-                ]);
-
-                if (bccomp($tokenBalance, $transaction['amount'], 8) >= 0) {
-                    $trx = $this->tronService->send(
-                        'TRX',
-                        $merchantMainWallet->private_key,
-                        $transaction['address'],
-                        $transaction['commission']
-                    );
-
-                    if (!$trx || !isset($trx['txid'])) {
-                        throw new \RuntimeException('TRX fee transfer failed');
-                    }
-
-                    Log::info('TRX fee sent', [
-                        'deposit_id' => $transaction['deposit_id'],
-                        'txid' => $trx['txid'],
+                if (bccomp($walletTokenBalance, '0', 8) <= 0) {
+                    Log::warning('Grouped wallet token balance is zero, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                        'token' => $token,
                     ]);
 
-                    $resultTRXtransaction = $this->tronService->waitForTrxConfirmation($trx['txid']);
-                    $activeWallet = $this->tronService->isAccountActivated(
-                        MerchantWalletService::getHexWallet($transaction['address'])
-                    );
+                    $failedGroups++;
+                    continue;
+                }
 
-                    Log::info('TRX confirmation / wallet activation checked', [
-                        'deposit_id' => $transaction['deposit_id'],
-                        'trx_confirmed' => $resultTRXtransaction,
-                        'wallet_activated' => $activeWallet,
+                $commission = $this->tronService->estimateTRC20Fee(
+                    $token,
+                    $walletAddress,
+                    $merchantMainWallet->number,
+                    $walletTokenBalance
+                );
+
+                if (!is_array($commission) || !isset($commission['total_fee'], $commission['fee_currency'])) {
+                    Log::error('Invalid commission response for grouped wallet/token, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                        'token' => $token,
+                        'commission' => $commission,
                     ]);
 
-                    if (!$resultTRXtransaction || !$activeWallet) {
-                        throw new \RuntimeException('TRX transfer not confirmed or wallet is not activated');
-                    }
+                    $failedGroups++;
+                    continue;
+                }
 
-                    $privateKey = MerchantWalletService::getPrivateKey($transaction['address']);
+                $commissionAmount = (string) $commission['total_fee'];
+                $feeCurrency = $commission['fee_currency'];
 
-                    if (!$privateKey) {
-                        throw new \RuntimeException('Private key for deposit wallet not found');
-                    }
+                $mainWalletBalances = $this->tronService->getAllBalances($merchantMainWallet->number);
+                $mainFeeBalance = (string) ($mainWalletBalances['balances'][$feeCurrency] ?? '0');
 
-                    $tokenTransaction = $this->tronService->send(
-                        $transaction['token'],
-                        $privateKey,
-                        $merchantMainWallet->number,
-                        $transaction['amount']
-                    );
+                Log::info('Main wallet fee balance checked', [
+                    'group_key' => $groupKey,
+                    'main_wallet' => $merchantMainWallet->number,
+                    'fee_currency' => $feeCurrency,
+                    'fee_balance' => $mainFeeBalance,
+                    'required_fee' => $commissionAmount,
+                ]);
 
-                    if (!$tokenTransaction) {
-                        throw new \RuntimeException('Token transfer failed');
-                    }
+                if (bccomp($mainFeeBalance, $commissionAmount, 8) < 0) {
+                    Log::warning('Not enough fee balance on main wallet, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'main_wallet' => $merchantMainWallet->number,
+                        'wallet' => $walletAddress,
+                        'token' => $token,
+                        'required_fee' => $commissionAmount,
+                        'fee_currency' => $feeCurrency,
+                        'available' => $mainFeeBalance,
+                    ]);
 
+                    $failedGroups++;
+                    continue;
+                }
+
+                $trx = $this->tronService->send(
+                    'TRX',
+                    $merchantMainWallet->private_key,
+                    $walletAddress,
+                    $commissionAmount
+                );
+
+                if (!$trx || !isset($trx['txid'])) {
+                    Log::error('TRX fee transfer failed, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                        'response' => $trx,
+                    ]);
+
+                    $failedGroups++;
+                    continue;
+                }
+
+                Log::info('TRX fee sent to grouped wallet/token', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'txid' => $trx['txid'],
+                    'amount' => $commissionAmount,
+                ]);
+
+                $trxConfirmed = $this->tronService->waitForTrxConfirmation($trx['txid']);
+                $walletActivated = $this->tronService->isAccountActivated(
+                    MerchantWalletService::getHexWallet($walletAddress)
+                );
+
+                Log::info('Grouped wallet/token trx confirmation checked', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'trx_confirmed' => $trxConfirmed,
+                    'wallet_activated' => $walletActivated,
+                ]);
+
+                if (!$trxConfirmed || !$walletActivated) {
+                    Log::warning('TRX transfer not confirmed or wallet is not activated, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                        'trx_confirmed' => $trxConfirmed,
+                        'wallet_activated' => $walletActivated,
+                    ]);
+
+                    $failedGroups++;
+                    continue;
+                }
+
+                $privateKey = MerchantWalletService::getPrivateKey($walletAddress);
+
+                if (!$privateKey) {
+                    Log::error('Private key for grouped wallet not found, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                    ]);
+
+                    $failedGroups++;
+                    continue;
+                }
+
+                $tokenTransaction = $this->tronService->send(
+                    $token,
+                    $privateKey,
+                    $merchantMainWallet->number,
+                    $walletTokenBalance
+                );
+
+                if (!$tokenTransaction) {
+                    Log::error('Token transfer failed, statuses not changed', [
+                        'group_key' => $groupKey,
+                        'wallet' => $walletAddress,
+                        'token' => $token,
+                        'amount' => $walletTokenBalance,
+                        'response' => $tokenTransaction,
+                    ]);
+
+                    $failedGroups++;
+                    continue;
+                }
+
+                foreach ($walletDeposits as $deposit) {
                     $deposit->update([
                         'status' => MerchantTransactionStatusEnum::paid->value,
                     ]);
-
-                    $processed++;
-
-                    Log::info('Deposit successfully withdrawn', [
-                        'deposit_id' => $transaction['deposit_id'],
-                        'token_transaction' => $tokenTransaction,
-                    ]);
-                } else {
-                    Log::warning('Insufficient token balance on deposit wallet', [
-                        'deposit_id' => $transaction['deposit_id'],
-                        'wallet' => $transaction['address'],
-                        'token' => $transaction['token'],
-                        'balance' => $tokenBalance,
-                        'required' => $transaction['amount'],
-                    ]);
-
-                    $deposit->update([
-                        'status' => MerchantTransactionStatusEnum::canceled->value,
-                    ]);
-
-                    $realBalance = $this->tronService->getAllBalances($transaction['address']);
-                    $currencies = BlockChainEnum::network();
-
-                    foreach ($currencies['tron'] as $currency) {
-                        $balance = (string) ($realBalance['balances'][$currency] ?? '0');
-
-                        if (bccomp($balance, '0', 8) > 0) {
-                            try {
-                                $privateKey = MerchantWalletService::getPrivateKey($transaction['address']);
-
-                                if (!$privateKey) {
-                                    Log::warning('Private key not found for sweeping balance', [
-                                        'deposit_id' => $transaction['deposit_id'],
-                                        'wallet' => $transaction['address'],
-                                        'currency' => $currency,
-                                    ]);
-                                    continue;
-                                }
-
-                                $this->tronService->send(
-                                    CurrencyService::curencyForTronBlockchain($currency),
-                                    $privateKey,
-                                    $merchantMainWallet->number,
-                                    $balance
-                                );
-
-                                Log::info('Remaining balance swept', [
-                                    'deposit_id' => $transaction['deposit_id'],
-                                    'currency' => $currency,
-                                    'amount' => $balance,
-                                ]);
-                            } catch (\Throwable $e) {
-                                Log::error('Failed to sweep remaining balance', [
-                                    'deposit_id' => $transaction['deposit_id'],
-                                    'currency' => $currency,
-                                    'amount' => $balance,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-                    }
-
-                    $failed++;
                 }
-            } catch (\Throwable $e) {
-                $failed++;
 
-                Log::error('Deposit withdraw failed', [
-                    'deposit_id' => $transaction['deposit_id'],
+                $processedGroups++;
+                $paidDeposits += $walletDeposits->count();
+
+                Log::info('Grouped wallet/token processed successfully', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'token' => $token,
+                    'amount' => $walletTokenBalance,
+                    'deposits_paid' => $walletDeposits->pluck('id')->toArray(),
+                    'token_transaction' => $tokenTransaction,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Grouped wallet/token withdraw failed, statuses not changed', [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'currency_id' => $currencyId,
+                    'deposit_ids' => $walletDeposits->pluck('id')->toArray(),
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
 
-                $deposit->update([
-                    'status' => MerchantTransactionStatusEnum::canceled->value,
-                ]);
+                $failedGroups++;
+                continue;
             }
         }
 
         return redirect()
             ->back()
             ->withInput()
-            ->withSuccess("Processed: {$processed}, failed: {$failed}");
+            ->withSuccess(
+                "Groups processed: {$processedGroups}, groups failed: {$failedGroups}, deposits paid: {$paidDeposits}"
+            );
     }
 }
