@@ -20,7 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
 //        $middleware->validateCsrfTokens(except: [
 //            'livewire/update',
-//            'livewire/message/*'
+ //           'livewire/message/*'
 //        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
