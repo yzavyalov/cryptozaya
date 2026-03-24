@@ -185,14 +185,10 @@ class WithdrawDepositsController extends Controller
             return $deposit->wallet_to . '|' . $deposit->currency_id;
         });
 
-        $processedGroups = 0;
-        $failedGroups = 0;
-        $paidDeposits = 0;
+        $preparedGroups = [];
+        $totalRequiredFeeByCurrency = [];
 
         foreach ($groupedDeposits as $groupKey => $walletDeposits) {
-            $walletAddress = null;
-            $currencyId = null;
-
             try {
                 $firstDeposit = $walletDeposits->first();
 
@@ -200,7 +196,6 @@ class WithdrawDepositsController extends Controller
                     Log::warning('Grouped deposits has no first deposit', [
                         'group_key' => $groupKey,
                     ]);
-                    $failedGroups++;
                     continue;
                 }
 
@@ -211,7 +206,7 @@ class WithdrawDepositsController extends Controller
                     CurrencyService::tronDBNameToken($currencyId)
                 );
 
-                Log::info('Processing grouped wallet/currency', [
+                Log::info('Preparing grouped wallet/currency', [
                     'group_key' => $groupKey,
                     'wallet' => $walletAddress,
                     'currency_id' => $currencyId,
@@ -231,13 +226,11 @@ class WithdrawDepositsController extends Controller
                 ]);
 
                 if (bccomp($walletTokenBalance, '0', 8) <= 0) {
-                    Log::warning('Grouped wallet token balance is zero, statuses not changed', [
+                    Log::warning('Grouped wallet token balance is zero, skipped', [
                         'group_key' => $groupKey,
                         'wallet' => $walletAddress,
                         'token' => $token,
                     ]);
-
-                    $failedGroups++;
                     continue;
                 }
 
@@ -249,57 +242,127 @@ class WithdrawDepositsController extends Controller
                 );
 
                 if (!is_array($commission) || !isset($commission['total_fee'], $commission['fee_currency'])) {
-                    Log::error('Invalid commission response for grouped wallet/token, statuses not changed', [
+                    Log::error('Invalid commission response for grouped wallet/token, skipped', [
                         'group_key' => $groupKey,
                         'wallet' => $walletAddress,
                         'token' => $token,
                         'commission' => $commission,
                     ]);
-
-                    $failedGroups++;
                     continue;
                 }
 
                 $commissionAmount = (string) $commission['total_fee'];
-                $feeCurrency = $commission['fee_currency'];
+                $feeCurrency = (string) $commission['fee_currency'];
 
-                $mainWalletBalances = $this->tronService->getAllBalances($merchantMainWallet->number);
-                $mainFeeBalance = (string) ($mainWalletBalances['balances'][$feeCurrency] ?? '0');
-
-                Log::info('Main wallet fee balance checked', [
-                    'group_key' => $groupKey,
-                    'main_wallet' => $merchantMainWallet->number,
-                    'fee_currency' => $feeCurrency,
-                    'fee_balance' => $mainFeeBalance,
-                    'required_fee' => $commissionAmount,
-                ]);
-
-                if (bccomp($mainFeeBalance, $commissionAmount, 8) < 0) {
-                    Log::warning('Not enough fee balance on main wallet, statuses not changed', [
-                        'group_key' => $groupKey,
-                        'main_wallet' => $merchantMainWallet->number,
-                        'wallet' => $walletAddress,
-                        'token' => $token,
-                        'required_fee' => $commissionAmount,
-                        'fee_currency' => $feeCurrency,
-                        'available' => $mainFeeBalance,
-                    ]);
-
-                    $failedGroups++;
-                    continue;
+                if (!isset($totalRequiredFeeByCurrency[$feeCurrency])) {
+                    $totalRequiredFeeByCurrency[$feeCurrency] = '0';
                 }
+
+                $totalRequiredFeeByCurrency[$feeCurrency] = bcadd(
+                    $totalRequiredFeeByCurrency[$feeCurrency],
+                    $commissionAmount,
+                    8
+                );
+
+                $preparedGroups[] = [
+                    'group_key' => $groupKey,
+                    'wallet' => $walletAddress,
+                    'currency_id' => $currencyId,
+                    'token' => $token,
+                    'wallet_balance' => $walletTokenBalance,
+                    'commission_amount' => $commissionAmount,
+                    'fee_currency' => $feeCurrency,
+                    'deposits' => $walletDeposits,
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Failed to prepare grouped wallet/token, skipped', [
+                    'group_key' => $groupKey,
+                    'deposit_ids' => $walletDeposits->pluck('id')->toArray(),
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                continue;
+            }
+        }
+
+        if (empty($preparedGroups)) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->withErrors([
+                    'balance' => 'No wallets with positive balance were found for withdrawal',
+                ]);
+        }
+
+        $mainWalletBalances = $this->tronService->getAllBalances($merchantMainWallet->number);
+
+        $missingFeeByCurrency = [];
+
+        foreach ($totalRequiredFeeByCurrency as $currency => $requiredAmount) {
+            $availableAmount = (string) ($mainWalletBalances['balances'][$currency] ?? '0');
+
+            Log::info('Main wallet total fee check', [
+                'main_wallet' => $merchantMainWallet->number,
+                'currency' => $currency,
+                'required_total_fee' => $requiredAmount,
+                'available_total_fee' => $availableAmount,
+            ]);
+
+            if (bccomp($availableAmount, $requiredAmount, 8) < 0) {
+                $missingFeeByCurrency[$currency] = bcsub($requiredAmount, $availableAmount, 8);
+            }
+        }
+
+        if (!empty($missingFeeByCurrency)) {
+            $parts = [];
+
+            foreach ($missingFeeByCurrency as $currency => $amount) {
+                if (bccomp($amount, '0', 8) > 0) {
+                    $parts[] = "{$amount} {$currency}";
+                }
+            }
+
+            $message = 'Top up main wallet ' . $merchantMainWallet->number . ' by: ' . implode(', ', $parts);
+
+            Log::warning('Not enough total fee balance on main wallet', [
+                'main_wallet' => $merchantMainWallet->number,
+                'missing' => $missingFeeByCurrency,
+            ]);
+
+            return redirect()
+                ->back()
+                ->withInput()
+                ->withErrors([
+                    'balance' => $message,
+                ]);
+        }
+
+        $processedGroups = 0;
+        $failedGroups = 0;
+        $paidDeposits = 0;
+
+        foreach ($preparedGroups as $group) {
+            try {
+                Log::info('Processing grouped wallet/token', [
+                    'group_key' => $group['group_key'],
+                    'wallet' => $group['wallet'],
+                    'token' => $group['token'],
+                    'wallet_balance' => $group['wallet_balance'],
+                    'commission_amount' => $group['commission_amount'],
+                    'deposit_ids' => $group['deposits']->pluck('id')->toArray(),
+                ]);
 
                 $trx = $this->tronService->send(
                     'TRX',
                     $merchantMainWallet->private_key,
-                    $walletAddress,
-                    $commissionAmount
+                    $group['wallet'],
+                    $group['commission_amount']
                 );
 
                 if (!$trx || !isset($trx['txid'])) {
                     Log::error('TRX fee transfer failed, statuses not changed', [
-                        'group_key' => $groupKey,
-                        'wallet' => $walletAddress,
+                        'group_key' => $group['group_key'],
+                        'wallet' => $group['wallet'],
                         'response' => $trx,
                     ]);
 
@@ -308,28 +371,28 @@ class WithdrawDepositsController extends Controller
                 }
 
                 Log::info('TRX fee sent to grouped wallet/token', [
-                    'group_key' => $groupKey,
-                    'wallet' => $walletAddress,
+                    'group_key' => $group['group_key'],
+                    'wallet' => $group['wallet'],
                     'txid' => $trx['txid'],
-                    'amount' => $commissionAmount,
+                    'amount' => $group['commission_amount'],
                 ]);
 
                 $trxConfirmed = $this->tronService->waitForTrxConfirmation($trx['txid']);
                 $walletActivated = $this->tronService->isAccountActivated(
-                    MerchantWalletService::getHexWallet($walletAddress)
+                    MerchantWalletService::getHexWallet($group['wallet'])
                 );
 
                 Log::info('Grouped wallet/token trx confirmation checked', [
-                    'group_key' => $groupKey,
-                    'wallet' => $walletAddress,
+                    'group_key' => $group['group_key'],
+                    'wallet' => $group['wallet'],
                     'trx_confirmed' => $trxConfirmed,
                     'wallet_activated' => $walletActivated,
                 ]);
 
                 if (!$trxConfirmed || !$walletActivated) {
                     Log::warning('TRX transfer not confirmed or wallet is not activated, statuses not changed', [
-                        'group_key' => $groupKey,
-                        'wallet' => $walletAddress,
+                        'group_key' => $group['group_key'],
+                        'wallet' => $group['wallet'],
                         'trx_confirmed' => $trxConfirmed,
                         'wallet_activated' => $walletActivated,
                     ]);
@@ -338,12 +401,12 @@ class WithdrawDepositsController extends Controller
                     continue;
                 }
 
-                $privateKey = MerchantWalletService::getPrivateKey($walletAddress);
+                $privateKey = MerchantWalletService::getPrivateKey($group['wallet']);
 
                 if (!$privateKey) {
                     Log::error('Private key for grouped wallet not found, statuses not changed', [
-                        'group_key' => $groupKey,
-                        'wallet' => $walletAddress,
+                        'group_key' => $group['group_key'],
+                        'wallet' => $group['wallet'],
                     ]);
 
                     $failedGroups++;
@@ -351,18 +414,18 @@ class WithdrawDepositsController extends Controller
                 }
 
                 $tokenTransaction = $this->tronService->send(
-                    $token,
+                    $group['token'],
                     $privateKey,
                     $merchantMainWallet->number,
-                    $walletTokenBalance
+                    $group['wallet_balance']
                 );
 
                 if (!$tokenTransaction) {
                     Log::error('Token transfer failed, statuses not changed', [
-                        'group_key' => $groupKey,
-                        'wallet' => $walletAddress,
-                        'token' => $token,
-                        'amount' => $walletTokenBalance,
+                        'group_key' => $group['group_key'],
+                        'wallet' => $group['wallet'],
+                        'token' => $group['token'],
+                        'amount' => $group['wallet_balance'],
                         'response' => $tokenTransaction,
                     ]);
 
@@ -370,29 +433,29 @@ class WithdrawDepositsController extends Controller
                     continue;
                 }
 
-                foreach ($walletDeposits as $deposit) {
+                foreach ($group['deposits'] as $deposit) {
                     $deposit->update([
                         'status' => MerchantTransactionStatusEnum::paid->value,
                     ]);
                 }
 
                 $processedGroups++;
-                $paidDeposits += $walletDeposits->count();
+                $paidDeposits += $group['deposits']->count();
 
                 Log::info('Grouped wallet/token processed successfully', [
-                    'group_key' => $groupKey,
-                    'wallet' => $walletAddress,
-                    'token' => $token,
-                    'amount' => $walletTokenBalance,
-                    'deposits_paid' => $walletDeposits->pluck('id')->toArray(),
+                    'group_key' => $group['group_key'],
+                    'wallet' => $group['wallet'],
+                    'token' => $group['token'],
+                    'amount' => $group['wallet_balance'],
+                    'deposits_paid' => $group['deposits']->pluck('id')->toArray(),
                     'token_transaction' => $tokenTransaction,
                 ]);
             } catch (\Throwable $e) {
                 Log::error('Grouped wallet/token withdraw failed, statuses not changed', [
-                    'group_key' => $groupKey,
-                    'wallet' => $walletAddress,
-                    'currency_id' => $currencyId,
-                    'deposit_ids' => $walletDeposits->pluck('id')->toArray(),
+                    'group_key' => $group['group_key'],
+                    'wallet' => $group['wallet'],
+                    'currency_id' => $group['currency_id'],
+                    'deposit_ids' => $group['deposits']->pluck('id')->toArray(),
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
