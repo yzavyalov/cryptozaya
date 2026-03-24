@@ -13,6 +13,7 @@ use App\Services\Operations\MerchantWallet\MerchantWalletService;
 use App\Services\Tron\TronHelper;
 use App\Services\Tron\TronService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class WithdrawDepositsController extends Controller
 {
@@ -23,17 +24,17 @@ class WithdrawDepositsController extends Controller
     public function withdrawDeposits(MainWalletRequest $request)
     {
         $validated = $request->validated();
-
+Log::info('Start withdraw. Validated',[$validated]);
         $walletMerchant = MerchantWallet::query()->findOrFail($validated['wallet_id']);
-
+Log::info('Start withdraw. WalletMerchant',[$walletMerchant]);
         $merchant = $walletMerchant->merchant;
-
+Log::info('Start withdraw. Merchant',[$merchant]);
         $merchantMainWallet = $merchant->mainWallet()->first();
-
+Log::info('Start withdraw. MerchantMainWallet',[$merchantMainWallet]);
         $deposits = $merchant->transactions()->where('type_transactions',MerchantTypeTransactionEnum::deposit->value)
             ->whereIn('status', [MerchantTransactionStatusEnum::successful->value,
                                  MerchantTransactionStatusEnum::withoutInitialization->value])->get();
-
+Log::info('Start withdraw. Deposits',[$deposits]);
         //считаем комиссию
         $allCommission['total_fee'] = 0;
 
@@ -53,6 +54,7 @@ class WithdrawDepositsController extends Controller
 
         foreach ($deposits as $deposit)
         {
+            Log::info('Start withdraw. Deposit',[$deposit]);
             $token = CurrencyService::curencyForTronBlockchain(CurrencyService::tronDBNameToken($deposit->currency_id));
 
             $commission =$this->tronService->estimateTRC20Fee($token,$deposit->wallet_to,$merchantMainWallet->number,$deposit->sum);
@@ -72,7 +74,7 @@ class WithdrawDepositsController extends Controller
         }
 
         $balanceMerchantMainWallet = $this->tronService->getAllBalances($merchantMainWallet->number);
-
+Log::info('Start withdraw. BalanceMerchantMainWallet',[$balanceMerchantMainWallet]);
         if ($balanceMerchantMainWallet['balances'][$allCommission['fee_currency']] < $allCommission['total_fee'])
         {
             return redirect()

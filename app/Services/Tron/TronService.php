@@ -143,7 +143,7 @@ class TronService
     public function send($asset,$privateKey,$to,$amount)
     {
         $asset = strtoupper($asset);
-dd('fdfs');
+
         $decodedKey = EncodeService::decrypte($privateKey);
         // TRX — нативная монета
         if ($asset === 'TRX') {
