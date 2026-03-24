@@ -10,6 +10,7 @@ enum MerchantTransactionStatusEnum: int
     case canceled = 3;
     case withoutInitialization = 4;
     case paid = 5;
+    case processing = 6;
 
     public function label(): string
     {
@@ -19,6 +20,7 @@ enum MerchantTransactionStatusEnum: int
             self::canceled => 'canceled',
             self::withoutInitialization => 'withoutInitialization',
             self::paid => 'paid',
+            self::processing => 'processing',
         };
     }
 
