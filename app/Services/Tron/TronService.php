@@ -210,46 +210,56 @@ class TronService
     {
         $startedAt = time();
         $attempt = 0;
+        $sleepSeconds = 2;
 
         while ((time() - $startedAt) < $timeout) {
             $attempt++;
 
-            $tx = $this->getTransactionInfo($txId);
+            try {
+                $tx = $this->getTransactionInfo($txId);
 
-            Log::info('Checking TRX confirmation', [
-                'txid' => $txId,
-                'attempt' => $attempt,
-                'elapsed_seconds' => time() - $startedAt,
-                'response' => $tx,
-            ]);
+                Log::info('Checking TRX confirmation', [
+                    'txid' => $txId,
+                    'attempt' => $attempt,
+                    'elapsed_seconds' => time() - $startedAt,
+                    'response' => $tx,
+                ]);
 
-            if (!empty($tx)) {
-                $receiptResult = data_get($tx, 'receipt.result');
-                $result = data_get($tx, 'result');
+                if (!empty($tx)) {
+                    $receiptResult = data_get($tx, 'receipt.result');
+                    $result = data_get($tx, 'result');
 
-                // ✅ SUCCESS
-                if ($receiptResult === 'SUCCESS' || $result === 'SUCCESS') {
-                    Log::info('TRX confirmed', [
-                        'txid' => $txId,
-                        'attempt' => $attempt,
-                        'elapsed_seconds' => time() - $startedAt,
-                    ]);
+                    if ($receiptResult === 'SUCCESS' || $result === 'SUCCESS') {
+                        Log::info('TRX confirmed', [
+                            'txid' => $txId,
+                            'attempt' => $attempt,
+                            'elapsed_seconds' => time() - $startedAt,
+                        ]);
 
-                    return true;
+                        return true;
+                    }
+
+                    if ($receiptResult === 'FAILED' || $result === 'FAILED') {
+                        Log::warning('TRX failed', [
+                            'txid' => $txId,
+                            'attempt' => $attempt,
+                            'elapsed_seconds' => time() - $startedAt,
+                            'response' => $tx,
+                        ]);
+
+                        return false;
+                    }
                 }
-
-                // ❌ FAILED
-                if ($receiptResult === 'FAILED' || $result === 'FAILED') {
-                    Log::error('TRX failed', [
-                        'txid' => $txId,
-                        'response' => $tx,
-                    ]);
-
-                    return false;
-                }
+            } catch (\Throwable $e) {
+                Log::warning('Error while checking TRX confirmation', [
+                    'txid' => $txId,
+                    'attempt' => $attempt,
+                    'elapsed_seconds' => time() - $startedAt,
+                    'error' => $e->getMessage(),
+                ]);
             }
 
-            sleep(2); // 🔥 чуть увеличили интервал (меньше нагрузка на ноду)
+            sleep($sleepSeconds);
         }
 
         Log::warning('TRX confirmation timeout reached', [
