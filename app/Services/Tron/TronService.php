@@ -206,17 +206,56 @@ class TronService
 
 
 
-    public function waitForTrxConfirmation(string $txId, int $timeout = 15): bool
+    public function waitForTrxConfirmation(string $txId, int $timeout = 60): bool
     {
-        for ($i = 0; $i < $timeout; $i++) {
+        $startedAt = time();
+        $attempt = 0;
+
+        while ((time() - $startedAt) < $timeout) {
+            $attempt++;
+
             $tx = $this->getTransactionInfo($txId);
 
-            if (!empty($tx) && ($tx['receipt']['result'] ?? '') === 'SUCCESS') {
-                return true;
+            Log::info('Checking TRX confirmation', [
+                'txid' => $txId,
+                'attempt' => $attempt,
+                'elapsed_seconds' => time() - $startedAt,
+                'response' => $tx,
+            ]);
+
+            if (!empty($tx)) {
+                $receiptResult = data_get($tx, 'receipt.result');
+                $result = data_get($tx, 'result');
+
+                // ✅ SUCCESS
+                if ($receiptResult === 'SUCCESS' || $result === 'SUCCESS') {
+                    Log::info('TRX confirmed', [
+                        'txid' => $txId,
+                        'attempt' => $attempt,
+                        'elapsed_seconds' => time() - $startedAt,
+                    ]);
+
+                    return true;
+                }
+
+                // ❌ FAILED
+                if ($receiptResult === 'FAILED' || $result === 'FAILED') {
+                    Log::error('TRX failed', [
+                        'txid' => $txId,
+                        'response' => $tx,
+                    ]);
+
+                    return false;
+                }
             }
 
-            sleep(1);
+            sleep(2); // 🔥 чуть увеличили интервал (меньше нагрузка на ноду)
         }
+
+        Log::warning('TRX confirmation timeout reached', [
+            'txid' => $txId,
+            'timeout_seconds' => $timeout,
+        ]);
 
         return false;
     }
