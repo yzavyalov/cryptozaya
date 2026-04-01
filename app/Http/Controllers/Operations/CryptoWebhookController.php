@@ -8,7 +8,6 @@ use App\Http\Enums\MerchantTypeTransactionEnum;
 use App\Models\Merchanttransaction;
 use App\Models\MerchantWallet;
 use App\Models\Wallet;
-use App\Services\Operations\BalanceService;
 use App\Services\Operations\CurrencyService;
 use App\Services\Operations\MerchantWallet\MerchantTransactionService;
 use App\Services\Operations\MerchantWallet\MerchantWebhookService;
@@ -20,13 +19,11 @@ use Illuminate\Support\Facades\Validator;
 
 class CryptoWebhookController extends Controller
 {
-    public function __construct(BalanceService $balanceService,
+    public function __construct(
                                 TransactionService $transactionService,
                                 MerchantTransactionService $merchantTransactionService,
                                 MerchantWebhookService $merchantWebHookService)
     {
-        $this->balanceService = $balanceService;
-
         $this->transactionService = $transactionService;
 
         $this->merchantTransactionService = $merchantTransactionService;
@@ -56,10 +53,10 @@ class CryptoWebhookController extends Controller
             'block'  => 'required|integer|min:0',
         ])->validate(); // ->validate() автоматически выбросит ValidationException, если что-то не так
 
-Log::info('Validated data: ' . json_encode($validated));
+
         // --- Проверка, принадлежит ли адрес нам ---
         $wallet = Wallet::query()->where('number', $validated['to'])->first();
-Log::info('Wallet: ', [$wallet]);
+
         $merchantWallet = MerchantWallet::query()->where('number', $validated['to'])->first();
 
         if (!$wallet && !$merchantWallet) {
@@ -80,7 +77,7 @@ Log::info('Wallet: ', [$wallet]);
         {
             $merchantTransactions = Merchanttransaction::query()->where('wallet_to',$data['to'])
                                                                 ->where('sum',$data['amount'])
-                                                                ->where('status', MerchantTransactionStatusEnum::created)
+                                                                ->where('status', MerchantTransactionStatusEnum::created->value)
                                                                 ->first();
             if ($merchantTransactions)
             {
@@ -88,17 +85,28 @@ Log::info('Wallet: ', [$wallet]);
             }
             else
             {
-                $merchantTransaction = $this->merchantTransactionService->create($merchantWallet->merchant_id,
-                                                    MerchantTypeTransactionEnum::deposit->value,
-                                                    MerchantTransactionStatusEnum::withoutInitialization->value,
-                                                'tron',
-                                                          $validated['from'],
-                                                          $validated['to'],
-                                                          $merchantWallet->merchant_user_id,
-                                                          $merchantWallet->merchant_transaction_id,
-                                                          $validated['amount'],
-                                                          CurrencyService::tronToken($validated['type']));
+                $merchantSuccessTransaction = Merchanttransaction::query()->where('wallet_to',$data['to'])
+                    ->where('sum',$data['amount'])
+                    ->where('status', MerchantTransactionStatusEnum::toMainWallet->value)
+                    ->first();
 
+                if ($merchantSuccessTransaction)
+                {
+                    $merchantSuccessTransaction->update(['status' => MerchantTransactionStatusEnum::paid->value]);
+                }
+                else
+                {
+                    $merchantTransaction = $this->merchantTransactionService->create($merchantWallet->merchant_id,
+                        MerchantTypeTransactionEnum::deposit->value,
+                        MerchantTransactionStatusEnum::withoutInitialization->value,
+                        'tron',
+                        $validated['from'],
+                        $validated['to'],
+                        $merchantWallet->merchant_user_id,
+                        $merchantWallet->merchant_transaction_id,
+                        $validated['amount'],
+                        CurrencyService::tronToken($validated['type']));
+                }
             }
 
             $merchant = $merchantWallet->merchant;
