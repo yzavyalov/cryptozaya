@@ -58,4 +58,5 @@ class MerchantWalletService
         return MerchantWallet::query()->where('number', $address)->pluck('private_key')->first();
 
     }
+
 }

@@ -75,8 +75,11 @@ async function sendWebhook(payload) {
         const body = JSON.stringify(payload);
         const signature = crypto.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 
+        const http = await import("http");
         const https = await import("https");
         const url = new URL(WEBHOOK_URL);
+
+        const client = url.protocol === "https:" ? https : http;
 
         const options = {
             hostname: url.hostname,
@@ -90,7 +93,7 @@ async function sendWebhook(payload) {
             }
         };
 
-        const req = https.request(options, res => {
+        const req = client.request(options, res => {
             logToFile(`Webhook sent: ${payload.type}, status ${res.statusCode}`);
         });
 

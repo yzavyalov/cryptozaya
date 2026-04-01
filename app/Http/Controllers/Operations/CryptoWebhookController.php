@@ -36,6 +36,7 @@ class CryptoWebhookController extends Controller
 
     public function handle(Request $request)
     {
+        Log::info('Webhook received: ' . $request->getContent());
         $raw = $request->getContent();
 
         // --- Декодируем JSON в массив ---
@@ -55,10 +56,10 @@ class CryptoWebhookController extends Controller
             'block'  => 'required|integer|min:0',
         ])->validate(); // ->validate() автоматически выбросит ValidationException, если что-то не так
 
-
+Log::info('Validated data: ' . json_encode($validated));
         // --- Проверка, принадлежит ли адрес нам ---
         $wallet = Wallet::query()->where('number', $validated['to'])->first();
-
+Log::info('Wallet: ', [$wallet]);
         $merchantWallet = MerchantWallet::query()->where('number', $validated['to'])->first();
 
         if (!$wallet && !$merchantWallet) {

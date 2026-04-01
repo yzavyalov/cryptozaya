@@ -4,59 +4,113 @@ namespace App\DTO\Withdraw;
 
 use App\Models\MerchantWallet;
 
-readonly class WithdrawPlanDto
+class WithdrawPlanDto
 {
-    /**
-     * @param WithdrawGroupDto[] $groups
-     * @param array<string, string> $totalRequiredFeeByCurrency
-     * @param array<string, string> $missingFeeByCurrency
-     */
+    public ?MerchantWallet $merchantMainWallet;
+    public array $processed;
+    public array $skipped;
+    public array $totalRequiredFeeByCurrency;
+    public array $missingFeeByCurrency;
+    public ?string $errorMessage;
+    public bool $partial;
+    public ?string $message;
+
     public function __construct(
-        public ?MerchantWallet $merchantMainWallet = null,
-        public array $groups = [],
-        public array $totalRequiredFeeByCurrency = [],
-        public array $missingFeeByCurrency = [],
-        public ?string $errorMessage = null,
-    ) {}
-
-    public function isReady(): bool
-    {
-        return $this->merchantMainWallet !== null
-            && empty($this->errorMessage)
-            && !empty($this->groups);
+        ?MerchantWallet $merchantMainWallet = null,
+        array $processed = [],
+        array $skipped = [],
+        array $totalRequiredFeeByCurrency = [],
+        array $missingFeeByCurrency = [],
+        ?string $errorMessage = null,
+        bool $partial = false,
+        ?string $message = null,
+    ) {
+        $this->merchantMainWallet = $merchantMainWallet;
+        $this->processed = $processed;
+        $this->skipped = $skipped;
+        $this->totalRequiredFeeByCurrency = $totalRequiredFeeByCurrency;
+        $this->missingFeeByCurrency = $missingFeeByCurrency;
+        $this->errorMessage = $errorMessage;
+        $this->partial = $partial;
+        $this->message = $message;
     }
 
-    public function hasErrors(): bool
+    public function hasError(): bool
     {
-        return !empty($this->errorMessage);
+        return $this->errorMessage !== null;
     }
 
-    public function groupsCount(): int
+    public function isSuccessful(): bool
     {
-        return count($this->groups);
+        return !$this->hasError() && !$this->partial;
     }
 
-    public function totalDeposits(): int
+    public function isPartial(): bool
     {
-        return array_sum(
-            array_map(fn (WithdrawGroupDto $group) => $group->depositsCount(), $this->groups)
+        return $this->partial;
+    }
+
+    public static function success(
+        ?MerchantWallet $merchantMainWallet = null,
+        array $processed = [],
+        array $skipped = [],
+        array $totalRequiredFeeByCurrency = [],
+        ?string $message = 'Все выплаты успешно обработаны.',
+    ): self {
+        return new self(
+            merchantMainWallet: $merchantMainWallet,
+            processed: $processed,
+            skipped: $skipped,
+            totalRequiredFeeByCurrency: $totalRequiredFeeByCurrency,
+            missingFeeByCurrency: [],
+            errorMessage: null,
+            partial: false,
+            message: $message,
         );
     }
 
-    public function missingFeeMessage(): ?string
+    public static function partial(
+        ?MerchantWallet $merchantMainWallet = null,
+        array $processed = [],
+        array $skipped = [],
+        array $totalRequiredFeeByCurrency = [],
+        array $missingFeeByCurrency = [],
+        ?string $message = 'Часть выплат обработана. Пополните комиссию и повторите.',
+    ): self {
+        return new self(
+            merchantMainWallet: $merchantMainWallet,
+            processed: $processed,
+            skipped: $skipped,
+            totalRequiredFeeByCurrency: $totalRequiredFeeByCurrency,
+            missingFeeByCurrency: $missingFeeByCurrency,
+            errorMessage: null,
+            partial: true,
+            message: $message,
+        );
+    }
+
+    public static function error(string $message): self
     {
-        if (empty($this->missingFeeByCurrency)) {
-            return null;
-        }
+        return new self(
+            errorMessage: $message,
+            partial: false,
+            message: $message,
+        );
+    }
 
-        $parts = [];
-
-        foreach ($this->missingFeeByCurrency as $currency => $amount) {
-            if (bccomp($amount, '0', 8) > 0) {
-                $parts[] = "{$amount} {$currency}";
-            }
-        }
-
-        return implode(', ', $parts);
+    public function toArray(): array
+    {
+        return [
+            'status' => $this->hasError()
+                ? 'error'
+                : ($this->isPartial() ? 'partial' : 'success'),
+            'message' => $this->message,
+            'error_message' => $this->errorMessage,
+            'merchant_main_wallet' => $this->merchantMainWallet?->number,
+            'processed' => $this->processed,
+            'skipped' => $this->skipped,
+            'total_required_fee_by_currency' => $this->totalRequiredFeeByCurrency,
+            'missing_fee_by_currency' => $this->missingFeeByCurrency,
+        ];
     }
 }

@@ -11,6 +11,8 @@ enum MerchantTransactionStatusEnum: int
     case withoutInitialization = 4;
     case paid = 5;
     case processing = 6;
+    case toMainWallet = 7;
+    case zeroBalance = 8;
 
     public function label(): string
     {
@@ -21,6 +23,8 @@ enum MerchantTransactionStatusEnum: int
             self::withoutInitialization => 'withoutInitialization',
             self::paid => 'paid',
             self::processing => 'processing',
+            self::toMainWallet => 'toMainWallet',
+            self::zeroBalance => 'zeroBalance',
         };
     }
 
