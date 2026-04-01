@@ -203,7 +203,7 @@ class SendMoney extends Component
         $to             = (string)$this->to;
 
         $wallet = $this->wallet;
-        $pk     = $wallet->privateKey;
+        $pk     = $wallet->privateKey ?? $wallet->private_key;
 
         Log::info('Preparing to send', [
             'blockchain' => $this->blockchain,
