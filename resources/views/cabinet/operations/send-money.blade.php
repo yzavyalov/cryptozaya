@@ -2,8 +2,9 @@
 
 @section('content')
     <div class="container mt-4">
-        @livewire('send-money',['walletId' => $walletId])
+        @livewire('send-money', [
+            'walletType' => $walletType,
+            'walletId' => $walletId
+        ])
     </div>
-
 @endsection
-

@@ -17,7 +17,9 @@ use Livewire\Component;
 class SendMoney extends Component
 {
     public $user;
-    public $walletId;
+
+    public string $walletType;
+    public int|string $walletId;
 
     public $wallet;
     public $walletBalances = [];
@@ -29,66 +31,93 @@ class SendMoney extends Component
     public $amount     = '';
     public $to         = '';
 
-    public function mount($walletId)
+    public function mount(string $walletType, $walletId): void
     {
         $this->user = Auth::user();
+        $this->walletType = $walletType;
         $this->walletId = $walletId;
 
         $this->loadWallet();
         $this->currencies = $this->loadCurrencies();
-
         $this->loadWalletBalances();
     }
 
     public function loadWallet(): void
     {
-        $this->wallet = Wallet::find($this->walletId);
+        $this->wallet = null;
 
-        if ($this->wallet) {
+        if ($this->walletType === 'wallet') {
+            $wallet = Wallet::find($this->walletId);
+
+            if (!$wallet) {
+                Log::error('Wallet not found', [
+                    'wallet_id' => $this->walletId,
+                    'wallet_type' => $this->walletType,
+                ]);
+                session()->flash('error', 'Wallet not found.');
+                return;
+            }
+
+            $this->wallet = $wallet;
             return;
         }
 
-        $merchantWallet = MerchantWallet::find($this->walletId);
+        if ($this->walletType === 'merchant_wallet') {
+            $merchantWallet = MerchantWallet::find($this->walletId);
 
-        if (!$merchantWallet) {
-            Log::error('Wallet not found', ['wallet_id' => $this->walletId]);
-            session()->flash('error', 'Wallet not found.');
+            if (!$merchantWallet) {
+                Log::error('Merchant wallet not found', [
+                    'wallet_id' => $this->walletId,
+                    'wallet_type' => $this->walletType,
+                ]);
+                session()->flash('error', 'Wallet not found.');
+                return;
+            }
+
+            $merchant = $merchantWallet->merchant;
+
+            if (!$merchant) {
+                Log::error('Merchant not found for merchant wallet', [
+                    'wallet_id' => $this->walletId,
+                    'wallet_type' => $this->walletType,
+                ]);
+                session()->flash('error', 'Merchant not found.');
+                return;
+            }
+
+            $hasAccess = $merchant->users->contains('id', $this->user->id);
+
+            if (!$hasAccess) {
+                Log::warning('Unauthorized merchant wallet access attempt', [
+                    'wallet_id' => $this->walletId,
+                    'wallet_type' => $this->walletType,
+                    'user_id' => $this->user->id,
+                ]);
+                session()->flash('error', 'You do not have access to this wallet.');
+                return;
+            }
+
+            $this->wallet = $merchantWallet;
             return;
         }
 
-        $merchant = $merchantWallet->merchant;
+        Log::error('Invalid wallet type', [
+            'wallet_id' => $this->walletId,
+            'wallet_type' => $this->walletType,
+            'user_id' => $this->user->id ?? null,
+        ]);
 
-        if (!$merchant) {
-            Log::error('Merchant not found for merchant wallet', ['wallet_id' => $this->walletId]);
-            session()->flash('error', 'Merchant not found.');
-            return;
-        }
-
-        $hasAccess = $merchant->users->contains('id', $this->user->id);
-
-        if (!$hasAccess) {
-            Log::warning('Unauthorized wallet access attempt', [
-                'wallet_id' => $this->walletId,
-                'user_id' => $this->user->id,
-            ]);
-            session()->flash('error', 'You do not have access to this wallet.');
-            return;
-        }
-
-        $this->wallet = $merchantWallet;
+        session()->flash('error', 'Invalid wallet type.');
     }
+
     /**
-     * ВАЖНО:
-     * Твой прошлый normalizeUtf8 вырезал ВСЁ кроме ASCII (регекс [^\x20-\x7E]),
-     * из-за этого мог ломать ответы/токены/сообщения.
-     * Здесь мы удаляем только управляющие (control) символы, а не весь UTF-8.
+     * Удаляем только control chars, не ломая UTF-8.
      */
     private function sanitizeNodeResponse($data)
     {
         if (is_array($data)) {
             array_walk_recursive($data, function (&$item) {
                 if (is_string($item)) {
-                    // убираем только control chars, оставляя UTF-8
                     $item = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $item);
                 }
             });
@@ -106,7 +135,6 @@ class SendMoney extends Component
         }
 
         if (strtolower($this->wallet->network) !== 'tron') {
-            // можно расширить под другие сети
             return;
         }
 
@@ -128,7 +156,7 @@ class SendMoney extends Component
             $this->walletBalances = ['error' => $e->getMessage()];
 
             Log::error('Error fetching balances', [
-                'wallet' => $this->wallet->number,
+                'wallet' => $this->wallet->number ?? null,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -141,7 +169,6 @@ class SendMoney extends Component
 
     public function sendMoney(): void
     {
-        // чистим старые flash чтобы не "залипали" в UI
         session()->forget(['error', 'success']);
 
         if (!$this->wallet) {
@@ -160,11 +187,10 @@ class SendMoney extends Component
                 'currency' => [
                     'required',
                     function ($attribute, $value, $fail) {
-                        // $value тут — currency id из селекта
                         $allowed = BlockChainEnum::currencies()[$this->blockchain] ?? [];
 
                         if (!in_array($value, $allowed)) {
-                            $fail("The selected currency is invalid for the selected blockchain.");
+                            $fail('The selected currency is invalid for the selected blockchain.');
                         }
                     }
                 ],
@@ -173,7 +199,6 @@ class SendMoney extends Component
                     'numeric',
                     'gt:0',
                     function ($attribute, $value, $fail) {
-                        // Проверка баланса по уже загруженным walletBalances
                         $symbol = BlockChainEnum::exchangeCurrency(
                             CurrencyService::tronDBNameToken($this->currency)
                         );
@@ -194,11 +219,10 @@ class SendMoney extends Component
             ]);
 
             session()->flash('error', 'Validation error.');
-            // ошибки полей Livewire сам покажет через @error
             return;
         }
 
-        $currencyDbName = CurrencyService::tronDBNameToken($this->currency); // 'USDT (trc20)','USDC (trc20)', 'TRX'
+        $currencyDbName = CurrencyService::tronDBNameToken($this->currency);
         $amount         = (string)$this->amount;
         $to             = (string)$this->to;
 
@@ -206,6 +230,7 @@ class SendMoney extends Component
         $pk     = $wallet->privateKey ?? $wallet->private_key;
 
         Log::info('Preparing to send', [
+            'wallet_type' => $this->walletType,
             'blockchain' => $this->blockchain,
             'currency' => $currencyDbName,
             'to' => $to,
@@ -216,7 +241,6 @@ class SendMoney extends Component
         try {
             $tron = app(TronService::class);
 
-            // Отправка в Tron
             $tx = $tron->send(
                 CurrencyService::curencyForTronBlockchain($currencyDbName),
                 $pk,
@@ -237,6 +261,7 @@ class SendMoney extends Component
             );
 
             Log::info('Transaction recorded in DB', [
+                'wallet_type' => $this->walletType,
                 'blockchain' => $this->blockchain,
                 'wallet_number' => $wallet->number,
                 'to' => $to,
@@ -244,17 +269,15 @@ class SendMoney extends Component
                 'token' => $token,
             ]);
 
-            // ✅ SUCCESS MESSAGE
             session()->flash('success', 'Transaction successfully sent.');
 
-            // Очистим форму (чтобы пользователь не отправил повторно случайно)
             $this->reset(['amount', 'to', 'currency']);
 
-            // Обновим балансы после транзакции
             $this->loadWalletBalances();
 
         } catch (\Throwable $e) {
             Log::error('Transaction error', [
+                'wallet_type' => $this->walletType,
                 'message' => $e->getMessage(),
                 'currency' => $currencyDbName,
                 'to' => $to,

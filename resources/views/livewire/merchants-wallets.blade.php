@@ -98,7 +98,7 @@
                                         <button
                                             type="button"
                                             class="btn btn-sm btn-danger"
-                                            onclick="window.location='{{ route('send-form', $wallet['id']) }}'"
+                                            onclick="window.location='{{ route('send-form', ['walletType' => 'merchant_wallet','walletId' => $wallet['id']]) }}'"
                                         >
                                             SEND
                                         </button>

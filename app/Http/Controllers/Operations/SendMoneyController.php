@@ -9,11 +9,10 @@ use Illuminate\Http\Request;
 
 class SendMoneyController extends Controller
 {
-    public function form($walletId)
+    public function form($walletType, $walletId)
     {
-        return view('cabinet.operations.send-money',compact('walletId'));
+        return view('cabinet.operations.send-money', compact('walletType', 'walletId'));
     }
-
 
     public function sendMoney(CurrencyRequest $request)
     {

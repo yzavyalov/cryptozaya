@@ -66,7 +66,7 @@ Route::middleware(['cabinet'])->group(function (){
     Route::get('/topup-form',[OperationController::class,'topupForm'])->name('topup-form');
     Route::post('/top-up-balance',[TopUpController::class,'topupBalance'])->name('top-up-balance');
 
-    Route::get('/wallet/{id}/money/send',[SendMoneyController::class,'form'])->name('send-form');
+    Route::get('/wallet/{walletType}/{walletId}/money/send',[SendMoneyController::class,'form'])->name('send-form');
     Route::get('/money/send/{currency}',[SendMoneyController::class,'sendMoney'])->name('send-money');
 
     Route::get('check-transactions',[OperationController::class,'checkTransactions'])->name('check-transactions');

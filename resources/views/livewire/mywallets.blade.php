@@ -52,7 +52,7 @@
                                 </td>
 
                                 <td class="text-end" style="width:100px;">
-                                    <button class="btn btn-sm btn-danger" onclick="window.location='{{ route('send-form', $wallet['id']) }}'">
+                                    <button class="btn btn-sm btn-danger" onclick="window.location='{{ route('send-form', ['walletType' => 'wallet','walletId' => $wallet['id']]) }}'">
                                         SEND
                                     </button>
                                 </td>
