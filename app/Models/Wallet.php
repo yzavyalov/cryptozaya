@@ -9,6 +9,8 @@ class Wallet extends Model
     protected $fillable = [
         'id',
         'user_id',
+        'status',
+        'is_hidden',
         'number',
         'hex',
         'network',

@@ -2,8 +2,9 @@
 
 namespace App\Livewire;
 
-use App\Services\WalletService;
+use App\Services\Ethereum\EthereumService;
 use App\Services\Tron\TronService;
+use App\Services\WalletService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
@@ -13,23 +14,29 @@ class Mywallets extends Component
     public $user;
     public $wallets = [];
 
-    // Сервисы
-    protected $tronService;
-    protected $walletService;
-
+    /**
+     * Инициализация компонента
+     */
     public function mount()
     {
         $this->user = Auth::user();
         $this->loadWallets();
-        $this->loadWalletsBalancies(); // сразу подгружаем балансы
+        $this->loadWalletsBalancies();
     }
 
     /**
-     * Загружаем кошельки пользователя
+     * Загружаем только активные кошельки пользователя
      */
     public function loadWallets()
     {
-        $this->wallets = $this->user->wallets()->get()->toArray();
+        $this->wallets = $this->user
+            ->wallets()
+            ->where(function ($q) {
+                $q->whereNull('is_hidden')->orWhere('is_hidden', false);
+            })
+            ->latest()
+            ->get()
+            ->toArray();
     }
 
     /**
@@ -37,48 +44,34 @@ class Mywallets extends Component
      */
     public function loadWalletsBalancies()
     {
-//        Log::info('Start loadWalletsBalancies', [
-//            'wallets_count' => count($this->wallets),
-//            'time' => now()
-//        ]);
-
         $this->wallets = collect($this->wallets)->map(function ($wallet) {
-//            Log::info('Processing wallet', [
-//                'number'  => $wallet['number'] ?? null,
-//                'hex'     => $wallet['hex'] ?? null,
-//                'network' => $wallet['network']
-//            ]);
+            $wallet['balances'] = $wallet['balances'] ?? [];
 
-            if (strtolower($wallet['network']) === 'tron') {
-                try {
-                    $address = $wallet['number'] ?? $wallet['hex'];
+            try {
+                $network = strtolower($wallet['network'] ?? '');
+                $address = $wallet['number'] ?? $wallet['hex'] ?? null;
 
-//                    Log::info('Fetching balances from Tron node', ['address' => $address]);
-
-                    $response = app(TronService::class)->getAllBalances($address);
-
-//                    Log::info('Node response', [
-//                        'wallet' => $wallet['number'],
-//                        'response' => $response
-//                    ]);
-
-                    $wallet['balances'] = $response['balances'] ?? [];
-                } catch (\Exception $e) {
-                    $wallet['balances'] = ['error' => $e->getMessage()];
-//                    Log::error('Error fetching balances', [
-//                        'wallet' => $wallet['number'],
-//                        'error' => $e->getMessage()
-//                    ]);
+                if (!$address) {
+                    return $wallet;
                 }
-            }
 
+                if ($network === 'tron') {
+                    $response = app(TronService::class)->getAllBalances($address);
+                    $wallet['balances'] = $response['balances'] ?? [];
+                }
+
+                if ($network === 'ethereum') {
+                    $response = app(EthereumService::class)->getAllBalances($address);
+                    $wallet['balances'] = $response['balances'] ?? [];
+                }
+            } catch (\Throwable $e) {
+                $wallet['balances'] = [
+                    'error' => $e->getMessage(),
+                ];
+            }
+Log::info('wallet', [$wallet]);
             return $wallet;
         })->toArray();
-
-//        Log::info('Finished loadWalletsBalancies', [
-//            'wallets_count' => count($this->wallets),
-//            'time' => now()
-//        ]);
     }
 
     /**
@@ -86,31 +79,38 @@ class Mywallets extends Component
      */
     public function createWallet($blockchain)
     {
-        if (strtolower($blockchain) !== 'tron') {
-//            Log::info('Blockchain not supported', ['blockchain' => $blockchain]);
+        $blockchain = strtolower((string) $blockchain);
+
+        if (!in_array($blockchain, ['tron', 'ethereum'])) {
             return;
         }
 
+        Log::info('createWallet', [$blockchain]);
+
         try {
-            $response = app(TronService::class)->createWallet();
-//            Log::info('response', ['response' => $response]);
-
-            // Поддерживаем несколько форматов: ['wallet'=>...], ['data'=>['wallet'=>...]] или плоский ответ с address
-            $newWallet = $response['wallet']
-                ?? ($response['data']['wallet'] ?? null)
-                ?? (isset($response['address']) ? $response : null);
-
-            if (!is_array($newWallet) || empty($newWallet['address'] ?? $newWallet['number'])) {
-//                Log::error('Invalid TronService response', ['response' => $response]);
-                throw new \RuntimeException('Invalid TronService response: wallet address missing');
+            if ($blockchain === 'tron') {
+                Log::info('tronservice');
+                $response = app(TronService::class)->createWallet();
+            } else {
+                Log::info('ethereumservice');
+                $response = app(EthereumService::class)->createWallet();
+                Log::info('ethereumservice-ready', [$response]);
             }
 
-            // Нормализуем поля
+            $newWallet = $response['wallet']
+                ?? ($response['data']['wallet'] ?? null)
+                ?? (isset($response['data']['address']) ? $response['data'] : null)
+                ?? (isset($response['address']) ? $response : null);
+
+            Log::info('newWallet', [$newWallet]);
+
+            if (!is_array($newWallet) || empty($newWallet['address'] ?? $newWallet['number'] ?? null)) {
+                throw new \RuntimeException("Invalid {$blockchain} wallet response: wallet address missing");
+            }
+
             $number = $newWallet['number'] ?? $newWallet['address'] ?? null;
 
-//            Log::info('wallet response', ['wallet' => $newWallet]);
-
-            $createWallet = app(WalletService::class)->createWallet(
+            app(WalletService::class)->createWallet(
                 $blockchain,
                 $number,
                 $newWallet['hex'] ?? null,
@@ -120,17 +120,40 @@ class Mywallets extends Component
                     : null,
                 Auth::id()
             );
-
-//            Log::info('New Tron wallet created', ['wallet' => $createWallet]);
         } catch (\Throwable $e) {
-//            Log::error('Error creating Tron wallet', ['error' => $e->getMessage()]);
+            Log::error('createWallet error', [
+                'blockchain' => $blockchain,
+                'message' => $e->getMessage(),
+            ]);
         }
 
-        // Обновляем список кошельков после создания
-        $this->loadWallets();
-        $this->loadWalletsBalancies();
+        $this->refreshWallets();
     }
 
+    /**
+     * Скрываем кошелёк, а не удаляем физически
+     */
+    public function deleteWallet($walletId)
+    {
+        $wallet = $this->user
+            ->wallets()
+            ->where('id', $walletId)
+            ->first();
+
+        if (!$wallet) {
+            return;
+        }
+
+        $wallet->update([
+            'is_hidden' => true,
+        ]);
+
+        $this->refreshWallets();
+    }
+
+    /**
+     * Обновление списка кошельков и балансов
+     */
     public function refreshWallets()
     {
         $this->user = Auth::user()->fresh();

@@ -45,4 +45,12 @@ return [
         'key' => env('EXCHANGE_SERVICE_API_KEY'),
     ],
 
+    'ethereum' => [
+    'url' => env('ETH_SERVICE_URL'),
+    'tokens' => [
+            'usdt' => env('ETH_USDT_CONTRACT'),
+            'usdc' => env('ETH_USDC_CONTRACT'),
+        ],
+],
+
 ];

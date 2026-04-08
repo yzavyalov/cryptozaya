@@ -10,8 +10,10 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::middleware('webhook-verify')->group(function () {
-    Route::post('/crypto/webhook', [CryptoWebhookController::class, 'handle']);
+    Route::post('/crypto/tron-webhook', [CryptoWebhookController::class, 'handle']);
     Route::get('/internal/tron-wallets', [CryptoWebhookController::class, 'tronWallets']);
+    Route::post('/crypto/eth-webhook', [CryptoWebhookController::class, 'ethHandle']);
+    Route::get('/internal/eth-wallets', [CryptoWebhookController::class, 'ethWallets']);
 });
 
 Route::middleware('merchant-api')->group(function () {

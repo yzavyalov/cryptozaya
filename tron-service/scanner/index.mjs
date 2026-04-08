@@ -14,7 +14,7 @@ import {fetchWalletsAndSave} from "./saveWallets.mjs" // <-- убедись, ч�
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
 
 const APP_URL = process.env.APP_URL;
-const WEBHOOK_URL = `${APP_URL}/api/crypto/webhook`;
+const WEBHOOK_URL = `${APP_URL}/api/crypto/tron-webhook`;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 const SCAN_INTERVAL = 30_000;           // 30 секунд для сканирования блоков

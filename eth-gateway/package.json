@@ -1,0 +1,28 @@
+{
+    "name": "eth-gateway",
+    "version": "1.0.0",
+    "description": "Ethereum gateway service for Laravel",
+    "type": "module",
+    "main": "index.mjs",
+    "scripts": {
+        "start": "concurrently -n API,SCAN -c green,blue \"npm run api\" \"npm run scan\"",
+        "api": "node index.mjs",
+        "scan": "node scanner/ethScanner.mjs"
+    },
+    "keywords": [
+        "ethereum",
+        "gateway",
+        "laravel",
+        "scanner"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "dotenv": "^17.4.0",
+        "ethers": "^6.16.0",
+        "fastify": "^5.8.4"
+    },
+    "devDependencies": {
+        "concurrently": "^9.0.0"
+    }
+}

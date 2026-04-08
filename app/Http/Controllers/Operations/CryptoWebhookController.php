@@ -129,4 +129,20 @@ class CryptoWebhookController extends Controller
     }
 
 
+    public function ethWallets()
+    {
+        $wallets1 = Wallet::query()->where('network', 'eth')->pluck('number');
+
+        $wallets2 = MerchantWallet::query()->where('network', 'eth')->pluck('number');
+
+        return $wallets1->merge($wallets2)->values();
+    }
+
+
+    public function ethHandle()
+    {
+        dd('dsfsd');
+    }
+
+
 }

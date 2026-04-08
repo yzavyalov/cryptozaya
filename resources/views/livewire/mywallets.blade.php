@@ -1,13 +1,42 @@
 <div>
-    <div wire:poll.10s="refreshWallets">
+    <div wire:poll.60s="refreshWallets">
         <h3 class="m-3">My Wallets</h3>
+
         <div>
             <div class="card shadow-sm p-3 w-100">
 
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <button wire:click="createWallet('tron')" class="btn btn-primary">
-                        + Create new wallet
-                    </button>
+                    <div class="dropdown">
+                        <button
+                            class="btn btn-primary dropdown-toggle"
+                            type="button"
+                            data-bs-toggle="dropdown"
+                            aria-expanded="false"
+                        >
+                            + Create new wallet
+                        </button>
+
+                        <ul class="dropdown-menu">
+                            <li>
+                                <button
+                                    type="button"
+                                    class="dropdown-item"
+                                    wire:click="createWallet('tron')"
+                                >
+                                    TRON
+                                </button>
+                            </li>
+                            <li>
+                                <button
+                                    type="button"
+                                    class="dropdown-item"
+                                    wire:click="createWallet('ethereum')"
+                                >
+                                    ETHEREUM
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
 
                     <button wire:click="refreshWallets" class="btn btn-outline-secondary">
                         🔄 Refresh balances
@@ -22,28 +51,33 @@
                             <th>Address</th>
                             <th>Network</th>
                             <th>TRX</th>
+                            <th>ETH</th>
                             <th>USDT</th>
                             <th>USDC</th>
                             <th>Created</th>
-                            <th style="width:100px;"></th>
+                            <th style="width:160px;"></th>
                         </tr>
                         </thead>
 
                         <tbody>
                         @forelse($wallets as $wallet)
                             <tr>
-                                <td>{!! \SimpleSoftwareIO\QrCode\Facades\QrCode::size(100)->generate($wallet['number']) !!}</td>
+                                <td>
+                                    {!! \SimpleSoftwareIO\QrCode\Facades\QrCode::size(100)->generate($wallet['number']) !!}
+                                </td>
+
                                 <td class="text-break" style="max-width: 240px;">
                                     {{ $wallet['number'] }}
                                 </td>
 
                                 <td>
-                                <span class="badge bg-info text-dark">
-                                    {{ strtoupper($wallet['network']) }}
-                                </span>
+                                    <span class="badge bg-info text-dark">
+                                        {{ strtoupper($wallet['network']) }}
+                                    </span>
                                 </td>
 
                                 <td>{{ $wallet['balances']['TRX'] ?? '—' }}</td>
+                                <td>{{ $wallet['balances']['ETH'] ?? '—' }}</td>
                                 <td>{{ $wallet['balances']['USDT'] ?? '—' }}</td>
                                 <td>{{ $wallet['balances']['USDC'] ?? '—' }}</td>
 
@@ -51,10 +85,25 @@
                                     {{ \Carbon\Carbon::parse($wallet['created_at'])->format('d.m.Y H:i') }}
                                 </td>
 
-                                <td class="text-end" style="width:100px;">
-                                    <button class="btn btn-sm btn-danger" onclick="window.location='{{ route('send-form', ['walletType' => 'wallet','walletId' => $wallet['id']]) }}'">
-                                        SEND
-                                    </button>
+                                <td class="text-end" style="width:160px;">
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-danger"
+                                            onclick="window.location='{{ route('send-form', ['walletType' => 'wallet', 'walletId' => $wallet['id']]) }}'"
+                                        >
+                                            SEND
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-outline-dark"
+                                            wire:click="deleteWallet({{ $wallet['id'] }})"
+                                            wire:confirm="Are you sure you want to hide this wallet?"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
