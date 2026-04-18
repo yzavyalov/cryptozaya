@@ -28,6 +28,9 @@ class CurrencyService
             case 'TRX': return 'TRX';
             case 'USDT (trc20)': return 'USDT';
             case 'USDC (trc20)': return 'USDC';
+            case 'ETH': return 'ETH';
+            case 'USDT (erc20)': return 'USDT';
+            case 'USDC (erc20)': return 'USDC';
             default: return null;
         }
     }

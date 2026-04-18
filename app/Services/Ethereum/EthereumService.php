@@ -24,8 +24,30 @@ class EthereumService
         ];
     }
 
+    protected function sanitizeForLog(array $payload): array
+    {
+        $sanitized = $payload;
 
-    protected function postToNode(string $path, array $body = [])
+        foreach (['privateKey', 'private_key', 'encrypted_private_key'] as $key) {
+            if (array_key_exists($key, $sanitized)) {
+                $sanitized[$key] = '[hidden]';
+            }
+        }
+
+        return $sanitized;
+    }
+
+    protected function extractErrorMessage($response, ?array $data = null, string $default = 'Ethereum blockchain service unavailable'): string
+    {
+        return (string) (
+            $data['error']['message']
+            ?? $data['error']
+            ?? $response->body()
+            ?? $default
+        );
+    }
+
+    protected function postToNode(string $path, array $body = []): array
     {
         $body['timestamp'] = time();
         $body['nonce'] = uniqid('', true);
@@ -34,20 +56,23 @@ class EthereumService
         $signature = hash_hmac('sha256', $jsonBody, config('services.ethereum.url'));
 
         $response = Http::withHeaders([
-            'X-Signature' => $signature
+            'X-Signature' => $signature,
         ])->post(config('services.ethereum.url') . $path, $body);
 
-        if ($response->failed()) {
-            Log::error('Ethereum node request failed', [
-                'path' => $path,
-                'status' => $response->status(),
-                'response' => $response->body()
-            ]);
-
-            throw new \RuntimeException('Ethereum blockchain service unavailable');
-        }
-
         $data = $response->json();
+
+        Log::info('Ethereum node POST response', [
+            'path' => $path,
+            'status' => $response->status(),
+            'request' => $this->sanitizeForLog($body),
+            'response' => $data ?? $response->body(),
+        ]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException(
+                $this->extractErrorMessage($response, $data, 'Ethereum blockchain service unavailable')
+            );
+        }
 
         if (!($data['ok'] ?? $data['success'] ?? true)) {
             throw new \RuntimeException(
@@ -57,10 +82,10 @@ class EthereumService
             );
         }
 
-        return $data;
+        return $data ?? [];
     }
 
-    protected function getFromNode(string $path, array $query = [])
+    protected function getFromNode(string $path, array $query = []): array
     {
         $timestamp = time();
         $data = '';
@@ -79,18 +104,20 @@ class EthereumService
             'signature' => $signature,
         ]));
 
-        if ($response->failed()) {
-            Log::error('Ethereum node GET failed', [
-                'path' => $path,
-                'timestamp' => $timestamp,
-                'status' => $response->status(),
-                'response' => $response->body(),
-            ]);
-
-            throw new \RuntimeException("Ethereum node GET error: " . $response->body());
-        }
-
         $json = $response->json();
+
+        Log::info('Ethereum node GET response', [
+            'path' => $path,
+            'status' => $response->status(),
+            'query' => $query,
+            'response' => $json ?? $response->body(),
+        ]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException(
+                $this->extractErrorMessage($response, $json, 'Ethereum node GET failed')
+            );
+        }
 
         if (!($json['ok'] ?? $json['success'] ?? true)) {
             throw new \RuntimeException(
@@ -100,10 +127,10 @@ class EthereumService
             );
         }
 
-        return $json;
+        return $json ?? [];
     }
 
-    public function createWallet()
+    public function createWallet(): array
     {
         return $this->postToNode('/wallet/create', []);
     }
@@ -123,7 +150,7 @@ class EthereumService
             }
 
             try {
-                $raw = $this->erc20Balance($symbol, $address);
+                $raw = $this->erc20Balance($token['address'], $address);
                 $balances[$symbol] = $this->formatToken($raw, (int) $token['decimals']);
             } catch (\Throwable $e) {
                 Log::warning('ERC20 balance read failed', [
@@ -173,7 +200,7 @@ class EthereumService
             ];
         }
 
-        $raw = $this->erc20Balance($address, $tokenConfig['address']);
+        $raw = $this->erc20Balance($tokenConfig['address'], $address);
 
         return [
             'balance' => $this->formatToken($raw, (int) $tokenConfig['decimals']),
@@ -182,20 +209,9 @@ class EthereumService
         ];
     }
 
-    /**
-     * Получить raw ERC20 balance в минимальных единицах токена.
-     *
-     * ВАЖНО:
-     * Этот метод предполагает, что в eth-gateway будет endpoint,
-     * который умеет делать balanceOf(contract, wallet).
-     *
-     * Например:
-     * GET /token-balance/{contract}/{wallet}
-     * => { ok: true, data: { balance: "1500000" } }
-     */
-    public function erc20Balance(string $token, string $wallet): string
+    public function erc20Balance(string $contract, string $wallet): string
     {
-        $response = $this->getFromNode("/token-balance/{$token}/{$wallet}");
+        $response = $this->getFromNode("/token-balance/{$contract}/{$wallet}");
         $data = $response['data'] ?? $response;
 
         return (string) (
@@ -224,7 +240,7 @@ class EthereumService
         return rtrim(rtrim($value, '0'), '.') ?: '0';
     }
 
-    public function estimateFee(string $asset, string $from, string $to, float $amount)
+    public function estimateFee(string $asset, string $from, string $to, float $amount): array
     {
         $asset = strtoupper($asset);
 
@@ -236,20 +252,24 @@ class EthereumService
             'asset' => $asset,
             'from' => $from,
             'to' => $to,
-            'amount' => $amount
+            'amount' => $amount,
         ]);
     }
 
-    public function send($asset, $privateKey, $to, $amount)
+    public function send(string $asset, string $privateKey, string $to, string $amount): array
     {
         $asset = strtoupper($asset);
         $decodedKey = EncodeService::decrypte($privateKey);
 
+        if (empty($decodedKey)) {
+            throw new \RuntimeException('Private key could not be decrypted.');
+        }
+
         if ($asset === 'ETH') {
             return $this->postToNode('/send', [
-                'privateKey' => $decodedKey,
+                'encrypted_private_key' => $decodedKey,
                 'to' => $to,
-                'amount' => $amount
+                'amount' => $amount,
             ]);
         }
 
@@ -268,7 +288,7 @@ class EthereumService
             'contract' => $token['address'],
             'privateKey' => $decodedKey,
             'to' => $to,
-            'amount' => $amount
+            'amount' => $amount,
         ]);
     }
 

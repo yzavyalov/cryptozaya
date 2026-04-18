@@ -6,6 +6,7 @@ use App\Http\Enums\BlockChainEnum;
 use App\Models\Currency;
 use App\Models\MerchantWallet;
 use App\Models\Wallet;
+use App\Services\Ethereum\EthereumService;
 use App\Services\Operations\CurrencyService;
 use App\Services\Operations\TransactionService;
 use App\Services\Tron\TronService;
@@ -39,6 +40,11 @@ class SendMoney extends Component
 
         $this->loadWallet();
         $this->currencies = $this->loadCurrencies();
+
+        if ($this->wallet) {
+            $this->blockchain = strtolower((string) $this->wallet->network);
+        }
+
         $this->loadWalletBalances();
     }
 
@@ -110,9 +116,6 @@ class SendMoney extends Component
         session()->flash('error', 'Invalid wallet type.');
     }
 
-    /**
-     * Удаляем только control chars, не ломая UTF-8.
-     */
     private function sanitizeNodeResponse($data)
     {
         if (is_array($data)) {
@@ -126,6 +129,12 @@ class SendMoney extends Component
         return $data;
     }
 
+    public function updatedBlockchain(): void
+    {
+        $this->currency = '';
+        $this->loadWalletBalances();
+    }
+
     public function loadWalletBalances(): void
     {
         $this->walletBalances = [];
@@ -134,29 +143,50 @@ class SendMoney extends Component
             return;
         }
 
-        if (strtolower($this->wallet->network) !== 'tron') {
-            return;
-        }
+        $network = strtolower((string) ($this->wallet->network ?? $this->blockchain));
 
         try {
-            $address = $this->wallet->hex ?: $this->wallet->number;
+            if ($network === 'tron') {
+                $address = $this->wallet->hex ?: $this->wallet->number;
 
-            Log::info('Fetching balances from Tron node', ['address' => $address]);
+                Log::info('Fetching balances from Tron node', ['address' => $address]);
 
-            $response = app(TronService::class)->getAllBalances($address);
-            $response = $this->sanitizeNodeResponse($response);
+                $response = app(TronService::class)->getAllBalances($address);
+                $response = $this->sanitizeNodeResponse($response);
 
-            Log::info('Tron node response', [
-                'wallet' => $this->wallet->number,
-                'response' => $response,
-            ]);
+                Log::info('Tron node response', [
+                    'wallet' => $this->wallet->number,
+                    'response' => $response,
+                ]);
 
-            $this->walletBalances = $response['balances'] ?? [];
+                $this->walletBalances = $response['balances'] ?? [];
+                return;
+            }
+
+            if ($network === 'ethereum') {
+                $address = $this->wallet->number;
+
+                Log::info('Fetching balances from Ethereum node', ['address' => $address]);
+
+                $response = app(EthereumService::class)->getAllBalances($address);
+                $response = $this->sanitizeNodeResponse($response);
+
+                Log::info('Ethereum node response', [
+                    'wallet' => $this->wallet->number,
+                    'response' => $response,
+                ]);
+
+                $this->walletBalances = $response['balances'] ?? [];
+                return;
+            }
+
+            $this->walletBalances = [];
         } catch (\Throwable $e) {
             $this->walletBalances = ['error' => $e->getMessage()];
 
             Log::error('Error fetching balances', [
                 'wallet' => $this->wallet->number ?? null,
+                'network' => $network,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -167,126 +197,235 @@ class SendMoney extends Component
         return Currency::all();
     }
 
+    protected function resolveCurrencyForSend(string $blockchain, string $currency): string
+    {
+        $blockchain = strtolower($blockchain);
+//        $currency = strtoupper($currency);
+
+
+        if ($blockchain === 'tron') {
+            return CurrencyService::curencyForTronBlockchain(
+                $currency
+            );
+        }
+
+        if ($blockchain === 'ethereum') {
+            return CurrencyService::curencyForTronBlockchain(
+                $currency
+            );
+        }
+
+        throw new \RuntimeException("Unsupported blockchain {$blockchain}");
+    }
+
+    protected function resolveCurrencyForTransaction(string $blockchain, string $currency): string
+    {
+        $blockchain = strtolower($blockchain);
+        $currency = strtoupper($currency);
+
+        if ($blockchain === 'tron') {
+            return CurrencyService::tronToken($currency);
+        }
+
+        if ($blockchain === 'ethereum') {
+            return CurrencyService::tronToken($currency);
+        }
+
+        return $currency;
+    }
+
+    protected function resolveBalanceSymbol(string $blockchain, string $currency): string
+    {
+        $blockchain = strtolower($blockchain);
+        $currency = strtoupper($currency);
+
+        if ($blockchain === 'tron') {
+            $dbName = CurrencyService::tronDBNameToken($currency);
+            return BlockChainEnum::exchangeCurrency($dbName);
+        }
+
+        if ($blockchain === 'ethereum') {
+            $dbName = CurrencyService::tronDBNameToken($currency);
+            return BlockChainEnum::exchangeCurrency($dbName);
+        }
+
+        return $currency;
+    }
+
     public function sendMoney(): void
     {
         session()->forget(['error', 'success']);
+        $this->resetErrorBag();
+        $this->resetValidation();
 
         if (!$this->wallet) {
             session()->flash('error', 'Wallet not found.');
             return;
         }
 
-        $blockchainLabels = array_map(fn($enum) => $enum->label(), BlockChainEnum::cases());
+        $walletNetwork = strtolower((string) $this->wallet->network);
+        $selectedBlockchain = strtolower((string) $this->blockchain);
 
-        try {
-            $this->validate([
-                'blockchain' => [
-                    'required',
-                    'in:' . implode(',', $blockchainLabels),
-                ],
-                'currency' => [
-                    'required',
-                    function ($attribute, $value, $fail) {
-                        $allowed = BlockChainEnum::currencies()[$this->blockchain] ?? [];
-
-                        if (!in_array($value, $allowed)) {
-                            $fail('The selected currency is invalid for the selected blockchain.');
-                        }
-                    }
-                ],
-                'amount' => [
-                    'required',
-                    'numeric',
-                    'gt:0',
-                    function ($attribute, $value, $fail) {
-                        $symbol = BlockChainEnum::exchangeCurrency(
-                            CurrencyService::tronDBNameToken($this->currency)
-                        );
-
-                        $balance = (float)($this->walletBalances[$symbol] ?? 0);
-                        $amount  = (float)$value;
-
-                        if ($amount > $balance) {
-                            $fail('The amount exceeds your available balance.');
-                        }
-                    }
-                ],
-                'to' => ['required', 'string'],
-            ]);
-        } catch (ValidationException $e) {
-            Log::warning('Validation failed', [
-                'errors' => $e->errors(),
-            ]);
-
-            session()->flash('error', 'Validation error.');
+        if ($selectedBlockchain !== $walletNetwork) {
+            $this->addError('blockchain', 'Selected blockchain does not match wallet network.');
             return;
         }
 
-        $currencyDbName = CurrencyService::tronDBNameToken($this->currency);
-        $amount         = (string)$this->amount;
-        $to             = (string)$this->to;
+        $blockchainLabels = array_map(fn($enum) => $enum->label(), BlockChainEnum::cases());
+
+        $this->validate([
+            'blockchain' => [
+                'required',
+                'in:' . implode(',', $blockchainLabels),
+            ],
+            'currency' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    $allowed = BlockChainEnum::currencies()[$this->blockchain] ?? [];
+
+                    if (!in_array($value, $allowed)) {
+                        $fail('The selected currency is invalid for the selected blockchain.');
+                    }
+                }
+            ],
+            'amount' => [
+                'required',
+                'numeric',
+                'gt:0',
+                function ($attribute, $value, $fail) use ($selectedBlockchain) {
+                    $symbol = $this->resolveBalanceSymbol($selectedBlockchain, $this->currency);
+
+                    $balance = (float)($this->walletBalances[$symbol] ?? 0);
+                    $amount  = (float) str_replace(',', '.', (string) $value);
+
+                    if ($amount > $balance) {
+                        $fail('The amount exceeds your available balance.');
+                    }
+                }
+            ],
+            'to' => ['required', 'string'],
+        ]);
+
+        $currencyForSend = CurrencyService::tronDBNameToken($this->currency) ?? null;
+        $amount          = (string) str_replace(',', '.', (string) $this->amount);
+        $to              = (string) $this->to;
 
         $wallet = $this->wallet;
-        $pk     = $wallet->privateKey ?? $wallet->private_key;
+        $pk     = $wallet->privateKey ?? $wallet->private_key ?? null;
+
+        if (!$pk) {
+            session()->flash('error', 'Private key not found.');
+            return;
+        }
 
         Log::info('Preparing to send', [
-            'wallet_type' => $this->walletType,
-            'blockchain' => $this->blockchain,
-            'currency' => $currencyDbName,
-            'to' => $to,
-            'amount' => $amount,
-            'wallet_number' => $wallet->number,
+            'wallet_type'    => $this->walletType,
+            'blockchain'     => $selectedBlockchain,
+            'currency'       => $currencyForSend,
+            'to'             => $to,
+            'amount'         => $amount,
+            'wallet_number'  => $wallet->number,
+            'has_private_key'=> !empty($pk),
         ]);
 
         try {
-            $tron = app(TronService::class);
+            if ($selectedBlockchain === 'tron') {
+                $service = app(TronService::class);
+                $tx = $service->send($currencyForSend, $pk, $to, $amount);
+            } elseif ($selectedBlockchain === 'ethereum') {
+                $service = app(EthereumService::class);
+                $tx = $service->send($currencyForSend, $pk, $to, $amount);
+            } else {
+                throw new \RuntimeException("Unsupported blockchain {$selectedBlockchain}");
+            }
 
-            $tx = $tron->send(
-                CurrencyService::curencyForTronBlockchain($currencyDbName),
-                $pk,
-                $to,
-                $amount
-            );
+            Log::info('Transaction sent', [
+                'blockchain' => $selectedBlockchain,
+                'response' => $tx,
+            ]);
 
-            Log::info('Transaction sent', ['tx' => $tx]);
-
-            $token = $tx['type'] ?? $currencyDbName;
+            $token = strtoupper((string) ($tx['type'] ?? $this->currency));
 
             app(TransactionService::class)->create(
-                $this->blockchain,
+                $selectedBlockchain,
                 $wallet->number,
                 $to,
                 $amount,
-                CurrencyService::tronToken($token)
+                $token,
             );
 
             Log::info('Transaction recorded in DB', [
-                'wallet_type' => $this->walletType,
-                'blockchain' => $this->blockchain,
+                'wallet_type'   => $this->walletType,
+                'blockchain'    => $selectedBlockchain,
                 'wallet_number' => $wallet->number,
-                'to' => $to,
-                'amount' => $amount,
-                'token' => $token,
+                'to'            => $to,
+                'amount'        => $amount,
+                'token'         => $token,
             ]);
 
             session()->flash('success', 'Transaction successfully sent.');
 
             $this->reset(['amount', 'to', 'currency']);
+            $this->blockchain = $walletNetwork;
 
             $this->loadWalletBalances();
-
         } catch (\Throwable $e) {
+            $networkResponse = method_exists($e, 'getResponse')
+                ? $e->getResponse()
+                : null;
+
             Log::error('Transaction error', [
-                'wallet_type' => $this->walletType,
-                'message' => $e->getMessage(),
-                'currency' => $currencyDbName,
-                'to' => $to,
-                'amount' => $amount,
+                'wallet_type'      => $this->walletType,
+                'message'          => $e->getMessage(),
+                'exception'        => get_class($e),
+                'currency'         => $currencyForSend,
+                'to'               => $to,
+                'amount'           => $amount,
+                'blockchain'       => $selectedBlockchain,
+                'network_response' => $networkResponse,
             ]);
 
-            session()->flash('error', $e->getMessage());
+            $message = $this->extractReadableNetworkError($e);
+
+            session()->flash('error', $message);
         }
     }
+
+
+    protected function extractReadableNetworkError(\Throwable $e): string
+    {
+        $message = $e->getMessage();
+
+        if (empty($message)) {
+            return 'Unknown network error.';
+        }
+
+        if (str_contains($message, 'insufficient funds')) {
+            return 'Insufficient funds for transfer and network fee.';
+        }
+
+        if (str_contains($message, 'encrypted_private_key is required')) {
+            return 'Encrypted private key is required by the blockchain node.';
+        }
+
+        if (str_contains($message, 'service unavailable')) {
+            return $message;
+        }
+
+        return $message;
+    }
+
+    public function getFilteredCurrenciesProperty()
+    {
+        if (!$this->blockchain) {
+            return collect();
+        }
+
+        return $this->currencies->filter(function ($currency) {
+            return strtolower((string) $currency->network) === strtolower((string) $this->blockchain);
+        });
+    }
+
 
     public function render()
     {

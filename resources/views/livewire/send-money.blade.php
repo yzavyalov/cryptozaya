@@ -26,10 +26,15 @@
 
             <h6 class="fw-semibold mt-3">Blockchain balances:</h6>
             <div class="ps-2">
-                <div>TRX — <strong>{{ $walletBalances['TRX'] ?? '—' }}</strong></div>
-                <div>USDT (TRC20) — <strong>{{ $walletBalances['USDT'] ?? '—' }}</strong></div>
-                <div>USDC (TRC20) — <strong>{{ $walletBalances['USDC'] ?? '—' }}</strong></div>
-
+                @if($wallet->network === 'tron')
+                    <div>TRX — <strong>{{ $walletBalances['TRX'] ?? '—' }}</strong></div>
+                    <div>USDT (TRC20) — <strong>{{ $walletBalances['USDT'] ?? '—' }}</strong></div>
+                    <div>USDC (TRC20) — <strong>{{ $walletBalances['USDC'] ?? '—' }}</strong></div>
+                @elseif($wallet->network === 'ethereum')
+                    <div>ETH — <strong>{{ $walletBalances['ETH'] ?? '—' }}</strong></div>
+                    <div>USDT (ERC20) — <strong>{{ $walletBalances['USDT'] ?? '—' }}</strong></div>
+                    <div>USDC (ERC20) — <strong>{{ $walletBalances['USDC'] ?? '—' }}</strong></div>
+                @endif
                 @if(!empty($walletBalances['error']))
                     <div class="text-danger small mt-2">
                         Balance error: {{ $walletBalances['error'] }}
@@ -42,11 +47,10 @@
         <form wire:submit.prevent="sendMoney">
             @csrf
 
-            <!-- ROW 1 -->
             <div class="row g-3 mb-2">
                 <div class="col-12 col-md-4">
                     <label class="form-label fw-semibold">Blockchain</label>
-                    <select wire:model.live="blockchain" class="form-select">
+                    <select wire:model.live="blockchain" class="form-select @error('blockchain') is-invalid @enderror">
                         <option value="">Select blockchain</option>
                         @foreach(\App\Http\Enums\BlockChainEnum::cases() as $chain)
                             <option value="{{ $chain->label() }}">{{ $chain->label() }}</option>
@@ -57,9 +61,9 @@
 
                 <div class="col-12 col-md-4">
                     <label class="form-label fw-semibold">Currency</label>
-                    <select wire:model="currency" class="form-select">
+                    <select wire:model="currency" class="form-select @error('currency') is-invalid @enderror">
                         <option value="">Select currency</option>
-                        @foreach($currencies as $cur)
+                        @foreach($this->filteredCurrencies as $cur)
                             <option value="{{ $cur->id }}">{{ $cur->name }}</option>
                         @endforeach
                     </select>
@@ -68,16 +72,15 @@
 
                 <div class="col-12 col-md-4">
                     <label class="form-label fw-semibold">Amount</label>
-                    <input wire:model="amount" type="text" class="form-control" placeholder="0.00">
+                    <input wire:model="amount" type="text" class="form-control @error('amount') is-invalid @enderror" placeholder="0.00">
                     @error('amount') <div class="text-danger small">{{ $message }}</div> @enderror
                 </div>
             </div>
 
-            <!-- ROW 2 -->
             <div class="row g-3 align-items-end">
                 <div class="col-12 col-md-8">
                     <label class="form-label fw-semibold">Recipient address</label>
-                    <input wire:model="to" type="text" class="form-control" placeholder="Recipient address">
+                    <input wire:model="to" type="text" class="form-control @error('to') is-invalid @enderror" placeholder="Recipient address">
                     @error('to') <div class="text-danger small">{{ $message }}</div> @enderror
                 </div>
 

@@ -24,7 +24,7 @@ enum BlockChainEnum: int
     public static function currencies(): array
     {
         return [
-            'ethereum' => ['ETH', 'USDT', 'USDC'],
+            'ethereum' => [6,4,5],
             'tron' => [1,2,3],
 //            'bsc' => ['BNB', 'BUSD', 'USDT'],
 //            'bitcoin' => ['BTC'],
