@@ -12,7 +12,6 @@ use App\Services\Operations\TransactionService;
 use App\Services\Tron\TronService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 class SendMoney extends Component

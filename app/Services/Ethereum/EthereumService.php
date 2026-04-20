@@ -49,6 +49,7 @@ class EthereumService
 
     protected function postToNode(string $path, array $body = []): array
     {
+        Log::info('Ethereum node POST request', ['path' => $path, 'body' => $body]);
         $body['timestamp'] = time();
         $body['nonce'] = uniqid('', true);
 
@@ -240,22 +241,6 @@ class EthereumService
         return rtrim(rtrim($value, '0'), '.') ?: '0';
     }
 
-    public function estimateFee(string $asset, string $from, string $to, float $amount): array
-    {
-        $asset = strtoupper($asset);
-
-        if ($asset !== 'ETH' && !array_key_exists($asset, $this->tokens)) {
-            throw new \RuntimeException("Unknown token {$asset}");
-        }
-
-        return $this->postToNode('/estimate-fee', [
-            'asset' => $asset,
-            'from' => $from,
-            'to' => $to,
-            'amount' => $amount,
-        ]);
-    }
-
     public function send(string $asset, string $privateKey, string $to, string $amount): array
     {
         $asset = strtoupper($asset);
@@ -361,4 +346,97 @@ class EthereumService
 
         return false;
     }
+
+
+    //estimate
+    public function estimateFee(string $asset, string $from, string $to, float|string $amount): array
+    {
+        if ($asset === 'ETH') {
+            Log::info('estimateFee ETH', ['asset' => $asset, 'from' => $from, 'to' => $to, 'amount' => $amount]);
+            return $this->postToNode('/estimate-fee', [
+                'from' => $from,
+                'to' => $to,
+                'value' => (string) $amount,
+                'data' => '0x',
+            ]);
+        }
+
+        if (!isset($this->tokens[$asset])) {
+            throw new \RuntimeException("Unknown token {$asset}");
+        }
+
+        $token = $this->tokens[$asset];
+
+        if (empty($token['address'])) {
+            throw new \RuntimeException("Token contract for {$asset} is not configured");
+        }
+
+        $decimals = (int) ($token['decimals'] ?? 18);
+        $amountRaw = $this->toTokenUnits((string) $amount, $decimals);
+        $data = $this->buildErc20TransferData($to, $amountRaw);
+
+        return $this->postToNode('/estimate-fee', [
+            'from' => $from,
+            'to' => $token['address'],
+            'value' => '0',
+            'data' => $data,
+        ]);
+    }
+
+    protected function buildErc20TransferData(string $to, string $amountRaw): string
+    {
+        $to = strtolower(trim($to));
+
+        if (!preg_match('/^0x[a-f0-9]{40}$/', $to)) {
+            throw new \RuntimeException('Invalid recipient address');
+        }
+
+        $methodId = 'a9059cbb'; // transfer(address,uint256)
+        $encodedTo = str_pad(substr($to, 2), 64, '0', STR_PAD_LEFT);
+        $encodedAmount = str_pad($this->decToHex($amountRaw), 64, '0', STR_PAD_LEFT);
+
+        return '0x' . $methodId . $encodedTo . $encodedAmount;
+    }
+
+    protected function toTokenUnits(string $amount, int $decimals): string
+    {
+        $amount = trim($amount);
+
+        if ($amount === '' || !preg_match('/^\d+(\.\d+)?$/', $amount)) {
+            throw new \RuntimeException('Invalid amount format');
+        }
+
+        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+        $fraction = substr($fraction, 0, $decimals);
+        $fraction = str_pad($fraction, $decimals, '0', STR_PAD_RIGHT);
+
+        $result = ltrim($whole . $fraction, '0');
+
+        return $result === '' ? '0' : $result;
+    }
+
+    protected function decToHex(string $dec): string
+    {
+        $dec = ltrim($dec, '0');
+
+        if ($dec === '' || $dec === '0') {
+            return '0';
+        }
+
+        if (!function_exists('bccomp')) {
+            throw new \RuntimeException('BCMath extension is required for token fee estimation');
+        }
+
+        $hex = '';
+
+        while (bccomp($dec, '0', 0) > 0) {
+            $remainder = bcmod($dec, '16');
+            $hex = dechex((int) $remainder) . $hex;
+            $dec = bcdiv($dec, '16', 0);
+        }
+
+        return $hex ?: '0';
+    }
+
+
 }
