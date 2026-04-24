@@ -9,6 +9,7 @@ use App\Http\Enums\MerchantTypeTransactionEnum;
 use App\Http\Requests\Api\DepositRequest;
 use App\Http\Requests\Api\ExchangeRequest;
 use App\Http\Requests\Api\WithdrawRequest;
+use App\Services\Operations\AmountRoundingService;
 use App\Services\Operations\CurrencyService;
 use App\Services\Operations\MerchantWallet\MerchantTransactionService;
 use App\Services\Operations\MerchantWallet\MerchantWalletService;
@@ -23,7 +24,8 @@ class OperationController extends Controller
     public function __construct(MerchantWalletService $merchantWalletService,
                                 MerchantTransactionService $merchantTransactionService,
                                 ExchangeTronCoinGekoService $exchangeTronCoinGekoService,
-                                TronService $tronService)
+                                TronService $tronService,
+                                AmountRoundingService $amountRoundingService)
     {
         $this->merchantWalletService = $merchantWalletService;
 
@@ -32,6 +34,8 @@ class OperationController extends Controller
         $this->exchangeTronCoinGekoService = $exchangeTronCoinGekoService;
 
         $this->tronService = $tronService;
+
+        $this->amountRoundingService = $amountRoundingService;
     }
     public function deposit(DepositRequest $request)
     {
@@ -48,15 +52,17 @@ class OperationController extends Controller
 
         $wallet = $this->merchantWalletService->create($validated);
 
+        $amount = $this->amountRoundingService->rounding($validated['amount']);
+
         $this->merchantTransactionService->create($validated['merchant_id'],
-                                                  MerchantTypeTransactionEnum::deposit,
-                                                  MerchantTransactionStatusEnum::created,
+                                                  MerchantTypeTransactionEnum::deposit->value,
+                                                  MerchantTransactionStatusEnum::created->value,
                                                    CurrencyService::blockchain($validated['currency']),
                                           null,
                                                     $wallet['number'],
                                                     $validated['user_id'],
                                                     $validated['transaction_id'],
-                                                    $validated['amount'],
+                                                    $amount,
                                                     CurrencyService::tronToken($validated['currency']),
         );
 
@@ -66,7 +72,7 @@ class OperationController extends Controller
             'user_id' => $validated['user_id'],
             'transaction_id' => $validated['transaction_id'],
             'token' => $validated['currency'],
-            'amount' => $validated['amount'],
+            'amount' => $amount,
             'currency' => $validated['currency_to'] ?? $validated['currency'],
         ]);
 
@@ -99,11 +105,27 @@ class OperationController extends Controller
             return response()->json(['error' => 'Not enough balance'], 400);
         }
 
+        $network = CurrencyService::blockchain($validated['currency']);
+
+        $service = match ($network) {
+            'tron' => $this->merchantWalletService->tronService,
+            'ethereum' => $this->merchantWalletService->ethereumService,
+            default => null,
+        };
+
+        if ($service === null) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 'UNSUPPORTED_NETWORK',
+                'message' => 'Unsupported blockchain network',
+            ], 422);
+        }
+
         $merchantTransaction = $this->merchantTransactionService->create(
             $merchant->id,
-            MerchantTypeTransactionEnum::withdraw,
-            MerchantTransactionStatusEnum::created,
-            'tron',
+            MerchantTypeTransactionEnum::withdraw->value,
+            MerchantTransactionStatusEnum::created->value,
+            $network,
             $merchantWallet->number,
             $validated['address'],
             $validated['user_id'],
@@ -113,14 +135,14 @@ class OperationController extends Controller
         );
 
         try {
-            $result = $this->tronService->send(
+            $result = $service->send(
                 CurrencyService::curencyForTronBlockchain($validated['currency']),
                 $merchantWallet->private_key,
                 $validated['address'],
                 $validated['amount']
             );
 
-            Log::info('Tron withdraw response', ['tx' => $result]);
+            Log::info('Withdraw response', ['tx' => $result]);
 
             if (!empty($result['code']) && $result['code'] !== 'SUCCESS') {
                 $merchantTransaction->update([
@@ -148,7 +170,7 @@ class OperationController extends Controller
 
             if (!$txHash) {
                 $merchantTransaction->update([
-                    'status' => MerchantTransactionStatusEnum::canceled,
+                    'status' => MerchantTransactionStatusEnum::canceled->value,
                 ]);
 
                 return response()->json([

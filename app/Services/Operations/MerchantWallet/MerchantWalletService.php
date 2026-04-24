@@ -6,31 +6,45 @@ use App\Http\Enums\BlockChainEnum;
 use App\Models\Merchant;
 use App\Models\MerchantWallet;
 use App\Services\EncodeService;
+use App\Services\Ethereum\EthereumService;
+use App\Services\Operations\CurrencyService;
 use App\Services\Tron\TronService;
 
 class MerchantWalletService
 {
-    public function __construct(TronService $tronService)
+    public function __construct(TronService $tronService, EthereumService $ethereumService)
     {
         $this->tronService = $tronService;
+
+        $this->ethereumService = $ethereumService;
     }
 
     public function create($data)
     {
-        $wallet = $this->tronService->createWallet();
+        $blockchain = CurrencyService::blockchain($data['currency']);
 
-        $a = json_encode($wallet['encrypted_private_key']);
+        switch ($blockchain) {
+            case 'tron': $service = $this->tronService; break;
+            case 'ethereum': $service = $this->ethereumService; break;
+            default: return false;
+        }
+
+        $wallet = $service->createWallet();
+
+        $walletData = $wallet['data'] ?? $wallet;
+
+        $a = json_encode($walletData['encrypted_private_key']);
         $b = EncodeService::encrypte($a);
 
         return MerchantWallet::create([
             'merchant_user_id' => $data['user_id'] ?? null,
             'merchant_transaction_id' => $data['transaction_id'] ?? null,
             'merchant_id' => $data['merchant_id'],
-            'number' => $wallet['address'],
-            'hex' => $wallet['hex'],
-            'network' => 'tron',
-            'public_key' => $wallet['publicKey'],
-            'private_key' => isset($wallet['encrypted_private_key'])
+            'number' => $walletData['address'],
+            'hex' => $walletData['hex'],
+            'network' => $blockchain,
+            'public_key' => $walletData['publicKey'],
+            'private_key' => isset($walletData['encrypted_private_key'])
                                 ? $b
                                 : null,
         ]);
@@ -38,14 +52,30 @@ class MerchantWalletService
 
     public function selectMerchantWalletForWithdraw(Merchant $merchant, $amount, $currency)
     {
-        $merchantWallet = $merchant->withDrawWallet();
+        $network = CurrencyService::blockchain($currency);
 
-        $walletBalance = $this->tronService->getAllBalances($merchantWallet->number); //здесь кошелек мерчанта для списания
+        $merchantWallet = $merchant->withDrawWallet()->where('network', $network)->first();
 
-//        if ($walletBalance['balances'][BlockChainEnum::exchangeCurrency($currency)] > $amount)
+        $service = match ($network) {
+            'tron' => $this->tronService,
+            'ethereum' => $this->ethereumService,
+            default => null,
+        };
+
+        if ($service === null) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 'UNSUPPORTED_NETWORK',
+                'message' => 'Unsupported blockchain network',
+            ], 422);
+        }
+
+        $walletBalance = $service->getAllBalances($merchantWallet->number); //здесь кошелек мерчанта для списания
+
+        if ($walletBalance['balances'][BlockChainEnum::exchangeCurrency($currency)] > $amount)
             return $merchantWallet;
-
-//        return null;
+        else
+            return null;
     }
 
     public static function getHexWallet(string $address)

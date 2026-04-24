@@ -9,6 +9,7 @@ class MerchantWallet extends Model
     protected $fillable = [
         'merchant_user_id',
         'merchant_transaction_id',
+        'status',
         'merchant_id',
         'number',
         'hex',

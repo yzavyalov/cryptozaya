@@ -30,4 +30,5 @@ class MerchantTransactionService
             'currency_id' => $currencyId,
         ]);
     }
+
 }

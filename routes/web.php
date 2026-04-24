@@ -50,7 +50,6 @@ Route::middleware(['cabinet'])->group(function (){
     Route::get('/wallet-balance',[OperationController::class,'walletBalance'])->name('wallet-balance');
 
 
-
     Route::get('cheklogs', function () {
         if (is_writable(storage_path('logs'))) {
             echo "Storage/logs доступен для записи";

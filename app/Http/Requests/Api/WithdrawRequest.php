@@ -25,7 +25,7 @@ class WithdrawRequest extends FormRequest
     {
         return [
             'address' => ['required', 'string', new WalletAddress()],
-            'amount' => 'required|numeric|min:1',
+            'amount' => 'required|numeric|min:0.000000000000000001',
             'currency' => 'required|string|min:3|max:20',
             'currency_to' => 'nullable|string|exists:currencies,name',
             'user_id' => 'required|integer',

@@ -305,7 +305,7 @@ class SendMoney extends Component
             'to' => ['required', 'string'],
         ]);
 
-        $currencyForSend = CurrencyService::tronDBNameToken($this->currency) ?? null;
+        $currencyForSend =  CurrencyService::curencyForTronBlockchain(CurrencyService::tronDBNameToken($this->currency)) ?? null;
         $amount          = (string) str_replace(',', '.', (string) $this->amount);
         $to              = (string) $this->to;
 
