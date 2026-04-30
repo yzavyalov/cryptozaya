@@ -18,6 +18,7 @@ class CryptoWebhookService
         protected TransactionService $transactionService,
         protected MerchantTransactionService $merchantTransactionService,
         protected MerchantWebhookService $merchantWebHookService,
+        protected AmountRoundingService $amountRoundingService,
     ) {}
 
     public function handle(Request $request, string $network)
@@ -53,18 +54,12 @@ class CryptoWebhookService
 
         $currency = CurrencyService::tronToken($validated['type']);
 
-        $this->transactionService->create(
-            $network,
-            $validated['from'],
-            $validated['to'],
-            $validated['amount'],
-            $currency
-        );
+        $amount = $this->amountRoundingService->rounding($validated['amount']);
 
         if ($merchantWallet) {
             $merchantTransaction = Merchanttransaction::query()
                 ->where('wallet_to', $validated['to'])
-                ->where('sum', $validated['amount'])
+                ->where('sum', $amount)
                 ->where('status', MerchantTransactionStatusEnum::created->value)
                 ->first();
 
@@ -75,7 +70,7 @@ class CryptoWebhookService
             } else {
                 $merchantTransaction = Merchanttransaction::query()
                     ->where('wallet_to', $validated['to'])
-                    ->where('sum', $validated['amount'])
+                    ->where('sum', $amount)
                     ->where('status', MerchantTransactionStatusEnum::toMainWallet->value)
                     ->first();
 
@@ -93,7 +88,7 @@ class CryptoWebhookService
                         $validated['to'],
                         $merchantWallet->merchant_user_id,
                         $merchantWallet->merchant_transaction_id,
-                        $validated['amount'],
+                        $amount,
                         $currency
                     );
                 }

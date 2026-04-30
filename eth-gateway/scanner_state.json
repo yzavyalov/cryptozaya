@@ -1,4 +1,9 @@
 {
-  "lastBlock": 0,
-  "processedEvents": {}
+  "lastBlock": 24992936,
+  "processedEvents": {
+    "0x775f64548e2d5f5341228ea5a02f022c4319286bc2f440810496fc4e0501f60f|ETH|0x95c637c87eac6da9c4d75e136a55d8bf8a2d3eb1|0xb4dc90c9a47ff6a73bd8769ac441662da58b3312|0.0001|": {
+      "block": 24992925,
+      "processedAt": "2026-04-30T12:29:39.231Z"
+    }
+  }
 }
