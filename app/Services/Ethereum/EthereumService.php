@@ -151,7 +151,7 @@ class EthereumService
             }
 
             try {
-                $raw = $this->erc20Balance($token['address'], $address);
+                $raw = $this->erc20Balance($symbol, $address);
                 $balances[$symbol] = $this->formatToken($raw, (int) $token['decimals']);
             } catch (\Throwable $e) {
                 Log::warning('ERC20 balance read failed', [
@@ -201,7 +201,7 @@ class EthereumService
             ];
         }
 
-        $raw = $this->erc20Balance($tokenConfig['address'], $address);
+        $raw = $this->erc20Balance($token, $address);
 
         return [
             'balance' => $this->formatToken($raw, (int) $tokenConfig['decimals']),
@@ -210,9 +210,9 @@ class EthereumService
         ];
     }
 
-    public function erc20Balance(string $contract, string $wallet): string
+    public function erc20Balance(string $token, string $wallet): string
     {
-        $response = $this->getFromNode("/token-balance/{$contract}/{$wallet}");
+        $response = $this->getFromNode("/token-balance/{$token}/{$wallet}");
         $data = $response['data'] ?? $response;
 
         return (string) (

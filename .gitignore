@@ -13,6 +13,8 @@
 /.zed
 /auth.json
 /node_modules
+/eth-gateway/node_modules
+/tron-service/node_modules
 /public/build
 /public/hot
 /public/storage
@@ -23,3 +25,5 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 tron-service/tron_wallets.json
+eth-gateway/eth_wallets.json
+eth-gateway/scanner_state.json

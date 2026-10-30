@@ -6,7 +6,8 @@ import http from "http";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
-dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const APP_URL = process.env.APP_URL;
 if (!APP_URL) {

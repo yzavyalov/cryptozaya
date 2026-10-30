@@ -14,7 +14,8 @@ const TRC20_ABI = [
     },
 ];
 
-const logFile = path.resolve("./wallet_token.log");
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const logFile = path.resolve(__dirname, "../wallet_token.log");
 
 function logToFile(...args) {
     try {

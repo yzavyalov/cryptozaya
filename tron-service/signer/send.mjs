@@ -4,7 +4,8 @@ import path from "path";
 import fs from "fs";
 import { createTronWebWithPrivateKey } from "../shared/tronWebClient.mjs";
 
-const logFile = path.resolve("./send_logs.log");
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const logFile = path.resolve(__dirname, "../send_logs.log");
 
 function logToFile(...args) {
     const timestamp = new Date().toISOString();
@@ -17,7 +18,7 @@ function logToFile(...args) {
 export async function sendTransaction(token, body) {
     token = token.toUpperCase();
 
-    logToFile("sendTransaction", token, body);
+    logToFile("sendTransaction", token, { to: body.to, amount: body.amount });
 
     const { privateKey: encrypted_private_key, to, amount } = body;
     const privateKey = decryptPrivateKeySafe(encrypted_private_key);

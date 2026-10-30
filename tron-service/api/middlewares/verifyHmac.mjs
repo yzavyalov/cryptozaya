@@ -2,8 +2,9 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-// Путь к файлу логов
-const logFile = path.join(process.cwd(), "send_token.log");
+// Путь к файлу логов, независимый от process.cwd()
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const logFile = path.resolve(__dirname, "../../send_token.log");
 
 // Функция для записи логов в файл с таймстампом
 function logToFile(...args) {

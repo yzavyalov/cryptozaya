@@ -3,7 +3,8 @@ import fs from "fs";
 import { TOKENS } from "../shared/tokens.mjs";
 import { getTronWeb } from "../shared/tronWebClient.mjs";
 
-const logFile = path.resolve("./comission_token.log");
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const logFile = path.resolve(__dirname, "../comission_token.log");
 
 function logToFile(...args) {
     try {
