@@ -27,3 +27,7 @@ Thumbs.db
 tron-service/tron_wallets.json
 eth-gateway/eth_wallets.json
 eth-gateway/scanner_state.json
+/public/.well-known/
+*.bak-*
+*.save
+tron-service/scanner/tron_wallets.json
